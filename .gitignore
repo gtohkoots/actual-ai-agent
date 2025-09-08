@@ -1,0 +1,49 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# VSCode settings
+.vscode/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# macOS system files
+.DS_Store
+
+# Local data and reports
+weekly_reports/
+daily_snapshots/
+
+# Database files
+*.sqlite
+*.db
+
+# Test cache
+.pytest_cache/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+
+# Ignore user-specific config
+*.local
+
+# Ignore large data exports
+*.csv
+*.xlsx
+
+# Ignore backup files
+*~
+*.bak

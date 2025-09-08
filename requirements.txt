@@ -1,0 +1,8 @@
+pandas
+openai
+langchain
+langchain_community
+python-dotenv
+pytest
+tqdm
+sqlite-utils
