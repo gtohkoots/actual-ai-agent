@@ -188,7 +188,7 @@ SYSTEM_MESSAGE = (
     "  2) 调用 get_week_rollups_tool 获取 Facts JSON；必要时调用 compare_to_last_week_tool 获取 WoW 对比；\n"
     "  3) 基于 Facts 先列出一个 JSON Facts 小节，然后再写 Markdown 报告（分章节：收入、支出、净现金流、Top 分类/Payees、WoW 对比、异常/大额、建议与预算）；\n"
     "  4) 如用户要求保存或归档，调用 save_weekly_report_tool(markdown)。\n"
-    "我们默认今年是 2025年，所有分析、报告、默认时间都以此为准。\n"
+    "我们默认今年是2025年, 所有分析、报告、默认时间都以此为准。\n"
 )
 
 

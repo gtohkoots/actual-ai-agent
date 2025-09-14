@@ -1,10 +1,13 @@
 import os
 import sqlite3
 from typing import Iterable, Optional
+from dotenv import load_dotenv
+
+load_dotenv()  # 自动读取 .env 文件
 
 import pandas as pd
 
-DEFAULT_DB_PATH = "/Users/ketia/Documents/Actual/My-Finances-b5b9544/db.sqlite"  # e.g., /path/to/budget.sqlite
+DEFAULT_DB_PATH = os.getenv("ACTUAL_DB_PATH")  # e.g., /path/to/budget.sqlite
 
 
 def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
