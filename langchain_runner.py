@@ -134,32 +134,8 @@ def save_weekly_report_tool(markdown: str, tag: Optional[str] = None) -> str:
 def save_daily_snapshot_tool(date: Optional[str] = None) -> str:
     """将指定日期（或今天）的财务分析快照保存为 JSON 文件，存储在 daily_snapshots 目录。返回保存路径。"""
     d = date or datetime.now().strftime("%Y-%m-%d")
-    s, e = d, d
-    df = get_transactions_in_date_range(s, e, join_names=True, dollars=True)
-    if df.empty:
-        return f"{d} 无交易数据，未生成快照。"
-    # 获取总收入、总支出、分类统计
-    total_income = float(df[df["amount"] > 0]["amount"].sum())
-    total_expense = float(df[df["amount"] < 0]["amount"].sum()) * -1  # 取正值
-    # 分类统计，区分收入和支出
-    categories = {"income": {}, "expense": {}}
-    if "category_name" in df.columns:
-        cat_group = df.groupby(["category_name"])["amount"].sum()
-        for cat, val in cat_group.items():
-            if val > 0:
-                categories["income"].update({cat: float(round(val, 2))})
-            elif val < 0:
-                categories["expense"].update({cat: float(round(-val, 2))})
-    # notes: 检查是否有大额支出
-    big_expense = df[(df["amount"] < 0) & (df["amount"].abs() > STATE["big_expense_threshold"])]
-    notes = "今日有大额支出 : {}".format(big_expense) if not big_expense.empty else ""
-    snapshot = {
-        "date": d,
-        "total_income": round(total_income, 2),
-        "total_expense": round(total_expense, 2),
-        "categories": categories,
-        "notes": notes
-    }
+    snapshot = insights.save_daily_snapshot(d, STATE["big_expense_threshold"])
+    file_path = f"daily_snapshots/{d}.json"
     snapshot_dir = Path("daily_snapshots")
     snapshot_dir.mkdir(exist_ok=True)
     file_path = snapshot_dir / f"{d}.json"

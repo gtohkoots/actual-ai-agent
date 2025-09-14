@@ -277,3 +277,33 @@ def detect_anomalies(
         }
         for _, r in out.iterrows()
     ]
+
+def save_daily_snapshot(d: str, threshold: str) -> str:
+    """保存某日的交易快照为 Markdown 文件，文件名格式为 snapshot-YYYY-MM-DD.md"""
+    df = get_transactions_in_date_range(d, d, join_names=True, dollars=True)
+    if df.empty:
+        return f"{d} 无交易数据，未生成快照。"
+    # 获取总收入、总支出、分类统计
+    total_income = float(df[df["amount"] > 0]["amount"].sum())
+    total_expense = float(df[df["amount"] < 0]["amount"].sum()) * -1  # 取正值
+    # 分类统计，区分收入和支出
+    categories = {"income": {}, "expense": {}}
+    if "category_name" in df.columns:
+        cat_group = df.groupby(["category_name"])["amount"].sum()
+        for cat, val in cat_group.items():
+            if val > 0:
+                categories["income"].update({cat: float(round(val, 2))})
+            elif val < 0:
+                categories["expense"].update({cat: float(round(-val, 2))})
+    # notes: 检查是否有大额支出
+    big_expense = df[(df["amount"] < 0) & (df["amount"].abs() > threshold)]
+    notes = "今日有大额支出 : {}".format(big_expense[["payee", "amount"]].to_dict(orient="records")) if not big_expense.empty else ""
+    snapshot = {
+        "date": d,
+        "total_income": round(total_income, 2),
+        "total_expense": round(total_expense, 2),
+        "categories": categories,
+        "notes": notes
+    }
+
+    return snapshot
