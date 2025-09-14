@@ -113,6 +113,17 @@ def get_week_rollups(
         for _, row in big_expenses_df.sort_values("abs_amount", ascending=False).iterrows()
     ]
 
+    # income payee distribution
+    income_payee = (
+        income_df
+        .groupby("payee", dropna=False)["amount"].sum()
+        .sort_values(ascending=False)
+    )
+    income_payee_dist = [
+        {"payee": str(idx) if idx is not None else "(unknown)", "amount": round(val, 2)}
+        for idx, val in income_payee.items()
+    ]
+
     return {
         "window": {"start": start_date, "end": end_date},
         "summary": {
@@ -123,6 +134,7 @@ def get_week_rollups(
         "by_category": by_category,
         "top_payees": top_payees,
         "big_expenses": big_expenses,
+        "income_payee_distribution": income_payee_dist,
     }
 
 
