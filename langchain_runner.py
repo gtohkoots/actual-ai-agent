@@ -93,7 +93,7 @@ def get_weekly_data_tool(start_date: Optional[str] = None, end_date: Optional[st
 
 @tool(args_schema=TimeRange)
 def get_week_rollups_tool(start_date: Optional[str] = None, end_date: Optional[str] = None) -> str:
-    """返回该时间段的关键指标与榜单(JSON)：总收入/总支出/净现金流、Top 分类、Top payees、>$threshold 大额支出。"""
+    """返回该时间段的关键指标与榜单(JSON)：总收入/总支出/净现金流、Top 分类、Top payees、>$threshold 大额支出，并将结果保存到 weekly_snapshot 目录。"""
     s = start_date or STATE.get("start_date")
     e = end_date or STATE.get("end_date")
     if not s or not e:
@@ -106,6 +106,12 @@ def get_week_rollups_tool(start_date: Optional[str] = None, end_date: Optional[s
         top_n_payees=STATE["top_n_payees"],
         big_expense_threshold=STATE["big_expense_threshold"],
     )
+    # 保存到 weekly_snapshot 目录
+    snapshot_dir = Path("weekly_snapshot")
+    snapshot_dir.mkdir(exist_ok=True)
+    file_path = snapshot_dir / f"week_{s}_to_{e}.json"
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
     return json.dumps(payload, ensure_ascii=False)
 
 
@@ -164,6 +170,7 @@ SYSTEM_MESSAGE = (
     "  2) 调用 get_week_rollups_tool 获取 Facts JSON；必要时调用 compare_to_last_week_tool 获取 WoW 对比；\n"
     "  3) 基于 Facts 先列出一个 JSON Facts 小节，然后再写 Markdown 报告（分章节：收入、支出、净现金流、Top 分类/Payees、WoW 对比、异常/大额、建议与预算）；\n"
     "  4) 如用户要求保存或归档，调用 save_weekly_report_tool(markdown)。\n"
+    "  5) 请在周报中展示收入来源细分 (income_payee_distribution)\n"
     "我们默认今年是2025年, 所有分析、报告、默认时间都以此为准。\n"
 )
 
