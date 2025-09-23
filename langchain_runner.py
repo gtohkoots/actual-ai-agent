@@ -107,7 +107,7 @@ def get_week_rollups_tool(start_date: Optional[str] = None, end_date: Optional[s
         big_expense_threshold=STATE["big_expense_threshold"],
     )
     # 保存到 weekly_snapshot 目录
-    snapshot_dir = Path("weekly_snapshot")
+    snapshot_dir = Path("weekly_snapshots")
     snapshot_dir.mkdir(exist_ok=True)
     file_path = snapshot_dir / f"week_{s}_to_{e}.json"
     with open(file_path, "w", encoding="utf-8") as f:

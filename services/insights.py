@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional
+from dotenv import load_dotenv
 
+import os
 import numpy as np
 import pandas as pd
 
@@ -13,12 +15,16 @@ try:
 except Exception:
     get_transactions_in_date_range = None  # type: ignore
 
+load_dotenv()  # 自动读取 .env 文件
+
+amex_id = os.getenv("AMEX_ACCT_ID")
+
 
 # -------------------------
 # Helpers
 # -------------------------
 
-def _ensure_df(df: Optional[pd.DataFrame], start_date: str, end_date: str) -> pd.DataFrame:
+def _ensure_df(df: Optional[pd.DataFrame], start_date: str, end_date: str, filter_payment: bool = True) -> pd.DataFrame:
     if df is not None:
         out = df.copy()
     else:
@@ -33,6 +39,15 @@ def _ensure_df(df: Optional[pd.DataFrame], start_date: str, end_date: str) -> pd
         out["amount"] = (out["amount"].astype(float) / 100).round(2)
     else:
         out["amount"] = out["amount"].astype(float).round(2)
+
+    # Optionally ignore Amex Pay transactions
+    if filter_payment and amex_id is not None:
+            if "payee" in out.columns and "account_pid" in out.columns:
+                payment_mask = (out["payee"] == "Payment") & (out["account_pid"] == amex_id)
+                filtered_rows = out[payment_mask]
+                print(f"[DEBUG] Filter candidate rows before exclusion: {filtered_rows.shape[0]}")
+                out = out[~payment_mask]
+                
     # Minimal expected columns
     for col in ["payee", "category"]:
         if col not in out.columns:

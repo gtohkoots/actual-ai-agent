@@ -83,7 +83,7 @@ def get_transactions_in_date_range(
         tx = tx.merge(accounts, left_on="acct", right_on="account_pid", how="left")
 
     # choose columns
-    base_cols = ["date", "amount", "payee", "category_name", "account_name", "notes"]
+    base_cols = ["date", "amount", "payee", "category_name", "account_name", "account_pid", "notes"]
     cols = list(columns) if columns is not None else [c for c in base_cols if c in tx.columns]
     df = tx[cols].copy()
 
