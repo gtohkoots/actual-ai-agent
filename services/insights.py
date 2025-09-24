@@ -9,6 +9,8 @@ import os
 import numpy as np
 import pandas as pd
 
+from services.filters import filter_payment_amex
+
 try:
     # Prefer your existing loader if present
     from utils.db import get_transactions_in_date_range
@@ -24,7 +26,7 @@ amex_id = os.getenv("AMEX_ACCT_ID")
 # Helpers
 # -------------------------
 
-def _ensure_df(df: Optional[pd.DataFrame], start_date: str, end_date: str, filter_payment: bool = True) -> pd.DataFrame:
+def _ensure_df(df: Optional[pd.DataFrame], start_date: str, end_date: str, filter_amex_payment: bool = True) -> pd.DataFrame:
     if df is not None:
         out = df.copy()
     else:
@@ -41,13 +43,9 @@ def _ensure_df(df: Optional[pd.DataFrame], start_date: str, end_date: str, filte
         out["amount"] = out["amount"].astype(float).round(2)
 
     # Optionally ignore Amex Pay transactions
-    if filter_payment and amex_id is not None:
-            if "payee" in out.columns and "account_pid" in out.columns:
-                payment_mask = (out["payee"] == "Payment") & (out["account_pid"] == amex_id)
-                filtered_rows = out[payment_mask]
-                print(f"[DEBUG] Filter candidate rows before exclusion: {filtered_rows.shape[0]}")
-                out = out[~payment_mask]
-                
+    if filter_amex_payment and amex_id is not None:
+        out = filter_payment_amex(out, amex_id)
+
     # Minimal expected columns
     for col in ["payee", "category"]:
         if col not in out.columns:
@@ -293,9 +291,9 @@ def detect_anomalies(
         for _, r in out.iterrows()
     ]
 
-def save_daily_snapshot(d: str, threshold: str) -> str:
+def save_daily_snapshot(d: str, threshold: str, df: Optional[pd.DataFrame] = None) -> str:
     """保存某日的交易快照为 Markdown 文件，文件名格式为 snapshot-YYYY-MM-DD.md"""
-    df = get_transactions_in_date_range(d, d, join_names=True, dollars=True)
+    df = _ensure_df(df, d, d)
     if df.empty:
         return f"{d} 无交易数据，未生成快照。"
     # 获取总收入、总支出、分类统计

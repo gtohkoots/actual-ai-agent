@@ -140,7 +140,8 @@ def save_weekly_report_tool(markdown: str, tag: Optional[str] = None) -> str:
 def save_daily_snapshot_tool(date: Optional[str] = None) -> str:
     """将指定日期（或今天）的财务分析快照保存为 JSON 文件，存储在 daily_snapshots 目录。返回保存路径。"""
     d = date or datetime.now().strftime("%Y-%m-%d")
-    snapshot = insights.save_daily_snapshot(d, STATE["big_expense_threshold"])
+    df = get_transactions_in_date_range(d, d, join_names=True, dollars=True)
+    snapshot = insights.save_daily_snapshot(d, STATE["big_expense_threshold"], df)
     file_path = f"daily_snapshots/{d}.json"
     snapshot_dir = Path("daily_snapshots")
     snapshot_dir.mkdir(exist_ok=True)
