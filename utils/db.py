@@ -87,13 +87,6 @@ def get_transactions_in_date_range(
     cols = list(columns) if columns is not None else [c for c in base_cols if c in tx.columns]
     df = tx[cols].copy()
 
-    # amount normalization
-    if dollars:
-        if pd.api.types.is_integer_dtype(df["amount"]) or (df["amount"].abs().max() > 10000):
-            df["amount"] = (df["amount"].astype(float) / 100).round(2)
-        else:
-            df["amount"] = df["amount"].astype(float).round(2)
-
     df = df.sort_values("date").reset_index(drop=True)
 
     if debug:

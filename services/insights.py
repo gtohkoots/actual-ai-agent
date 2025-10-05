@@ -9,7 +9,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from services.filters import filter_payment_amex
+from services.filters import filter_ignored_payment
 
 try:
     # Prefer your existing loader if present
@@ -17,16 +17,12 @@ try:
 except Exception:
     get_transactions_in_date_range = None  # type: ignore
 
-load_dotenv()  # 自动读取 .env 文件
-
-amex_id = os.getenv("AMEX_ACCT_ID")
-
 
 # -------------------------
 # Helpers
 # -------------------------
 
-def _ensure_df(df: Optional[pd.DataFrame], start_date: str, end_date: str, filter_amex_payment: bool = True) -> pd.DataFrame:
+def _ensure_df(df: Optional[pd.DataFrame], start_date: str, end_date: str, filter_payment: bool = True) -> pd.DataFrame:
     if df is not None:
         out = df.copy()
     else:
@@ -43,8 +39,8 @@ def _ensure_df(df: Optional[pd.DataFrame], start_date: str, end_date: str, filte
         out["amount"] = out["amount"].astype(float).round(2)
 
     # Optionally ignore Amex Pay transactions
-    if filter_amex_payment and amex_id is not None:
-        out = filter_payment_amex(out, amex_id)
+    if filter_payment is True:
+        out = filter_ignored_payment(out)
 
     # Minimal expected columns
     for col in ["payee", "category"]:
