@@ -32,8 +32,16 @@ def _ensure_df(df: Optional[pd.DataFrame], start_date: str, end_date: str, filte
     # Ensure types
     if not np.issubdtype(out["date"].dtype, np.datetime64):
         out["date"] = pd.to_datetime(out["date"])  # keep datetime64[ns]
+    # Normalize human-readable aliases for downstream grouping.
+    if "category" not in out.columns and "category_name" in out.columns:
+        out["category"] = out["category_name"]
+    if "account" not in out.columns and "account_name" in out.columns:
+        out["account"] = out["account_name"]
+
     # Ensure dollars (float)
-    if pd.api.types.is_integer_dtype(out["amount"]) or (out["amount"].abs().max() > 10000):
+    if not out.empty and (
+        pd.api.types.is_integer_dtype(out["amount"]) or (out["amount"].abs().max() > 10000)
+    ):
         out["amount"] = (out["amount"].astype(float) / 100).round(2)
     else:
         out["amount"] = out["amount"].astype(float).round(2)

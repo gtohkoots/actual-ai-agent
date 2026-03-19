@@ -83,6 +83,9 @@ def get_weekly_data_tool(start_date: Optional[str] = None, end_date: Optional[st
         return "未设置时间区间，请先调用 update_time_window_tool 或传入参数"
 
     df = get_transactions_in_date_range(s, e, join_names=True, dollars=True)
+    for source, alias in (("category_name", "category"), ("account_name", "account")):
+        if alias not in df.columns and source in df.columns:
+            df[alias] = df[source]
     df = df[[c for c in ["date", "amount", "payee", "category", "account"] if c in df.columns]].sort_values("date")
     if len(df) > 500:
         df = df.tail(500)

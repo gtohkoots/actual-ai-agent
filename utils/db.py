@@ -82,10 +82,18 @@ def get_transactions_in_date_range(
         tx = tx.merge(categories, left_on="category", right_on="category_id", how="left")
         tx = tx.merge(accounts, left_on="acct", right_on="account_pid", how="left")
 
+    if dollars and "amount" in tx.columns:
+        tx["amount"] = (tx["amount"].astype(float) / 100).round(2)
+
     # choose columns
     base_cols = ["date", "amount", "payee", "category_name", "account_name", "account_pid", "notes"]
     cols = list(columns) if columns is not None else [c for c in base_cols if c in tx.columns]
     df = tx[cols].copy()
+
+    if "category_name" in df.columns and "category" not in df.columns:
+        df["category"] = df["category_name"]
+    if "account_name" in df.columns and "account" not in df.columns:
+        df["account"] = df["account_name"]
 
     df = df.sort_values("date").reset_index(drop=True)
 
@@ -94,5 +102,4 @@ def get_transactions_in_date_range(
         print("total rows returned:", len(df))
 
     return df
-
 
