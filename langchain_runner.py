@@ -17,6 +17,14 @@ from langchain.chat_models import ChatOpenAI
 
 # --- project imports ---
 from services import insights
+from services.documents import (
+    find_similar_spending_weeks,
+    get_recent_anomalies,
+    rebuild_document_store,
+    search_documents,
+    search_past_weeks_by_category,
+    search_reports,
+)
 from utils.db import get_transactions_in_date_range
 
 
@@ -55,6 +63,43 @@ class SaveReportInput(BaseModel):
 
 class DailySnapshotInput(BaseModel):
     date: Optional[str] = Field(None, description="快照日期，YYYY-MM-DD，留空则为今天")
+
+
+class SearchDocumentsInput(BaseModel):
+    query: Optional[str] = Field(None, description="搜索关键词，例如 payee、category、主题词")
+    doc_type: Optional[str] = Field(
+        None,
+        description="可选: daily_snapshot, weekly_snapshot, weekly_report",
+    )
+    start_date: Optional[str] = Field(None, description="筛选起始日期，YYYY-MM-DD")
+    end_date: Optional[str] = Field(None, description="筛选结束日期，YYYY-MM-DD")
+    limit: int = Field(5, description="最多返回多少条文档")
+
+
+class CategorySearchInput(BaseModel):
+    category: str = Field(..., description="要查询的分类名，例如 Grocery、Food、Travel")
+    start_date: Optional[str] = Field(None, description="筛选起始日期，YYYY-MM-DD")
+    end_date: Optional[str] = Field(None, description="筛选结束日期，YYYY-MM-DD")
+    limit: int = Field(5, description="最多返回多少周")
+
+
+class SimilarWeeksInput(BaseModel):
+    start_date: str = Field(..., description="目标周开始日期，YYYY-MM-DD")
+    end_date: str = Field(..., description="目标周结束日期，YYYY-MM-DD")
+    limit: int = Field(3, description="最多返回多少个相似周")
+
+
+class RecentAnomaliesInput(BaseModel):
+    payee: Optional[str] = Field(None, description="可选，按支付方筛选")
+    category: Optional[str] = Field(None, description="可选，按分类筛选")
+    limit: int = Field(5, description="最多返回多少条异常记录")
+
+
+class ReportSearchInput(BaseModel):
+    query: str = Field(..., description="要在历史周报中检索的关键词或主题")
+    start_date: Optional[str] = Field(None, description="筛选起始日期，YYYY-MM-DD")
+    end_date: Optional[str] = Field(None, description="筛选结束日期，YYYY-MM-DD")
+    limit: int = Field(5, description="最多返回多少篇周报")
 
 
 # =============================
@@ -153,6 +198,92 @@ def save_daily_snapshot_tool(date: Optional[str] = None) -> str:
         json.dump(snapshot, f, ensure_ascii=False, indent=2)
     return f"已保存 {d} 快照: {file_path}"
 
+
+@tool
+def refresh_artifact_documents_tool() -> str:
+    """将 daily_snapshots、weekly_snapshots、weekly_reports 中的已有产物转换为可检索文档，并写入本地 SQLite 文档库。"""
+    counts = rebuild_document_store(".")
+    return json.dumps(counts, ensure_ascii=False)
+
+
+@tool(args_schema=SearchDocumentsInput)
+def search_artifact_documents_tool(
+    query: Optional[str] = None,
+    doc_type: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 5,
+) -> str:
+    """在历史快照和周报文档中搜索相关内容，返回 JSON 数组。适合查询历史相似周、分类、payee 或过往建议。"""
+    results = search_documents(
+        query=query,
+        doc_type=doc_type,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+    )
+    return json.dumps(results, ensure_ascii=False)
+
+
+@tool(args_schema=CategorySearchInput)
+def search_past_weeks_by_category_tool(
+    category: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 5,
+) -> str:
+    """查询历史周快照中包含某个支出分类的周，适合回答某个 category 过去何时出现、金额多大。"""
+    results = search_past_weeks_by_category(
+        category=category,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+    )
+    return json.dumps(results, ensure_ascii=False)
+
+
+@tool(args_schema=SimilarWeeksInput)
+def find_similar_spending_weeks_tool(start_date: str, end_date: str, limit: int = 3) -> str:
+    """根据历史周快照检索与某一周消费结构相似的周，便于对比相似消费模式。"""
+    results = find_similar_spending_weeks(
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+    )
+    return json.dumps(results, ensure_ascii=False)
+
+
+@tool(args_schema=RecentAnomaliesInput)
+def get_recent_anomalies_tool(
+    payee: Optional[str] = None,
+    category: Optional[str] = None,
+    limit: int = 5,
+) -> str:
+    """查询历史周快照中的大额异常支出，可按 payee 或 category 过滤。"""
+    results = get_recent_anomalies(
+        payee=payee,
+        category=category,
+        limit=limit,
+    )
+    return json.dumps(results, ensure_ascii=False)
+
+
+@tool(args_schema=ReportSearchInput)
+def search_reports_tool(
+    query: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 5,
+) -> str:
+    """在历史周报中搜索相关主题、建议或叙述内容。"""
+    results = search_reports(
+        query=query,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+    )
+    return json.dumps(results, ensure_ascii=False)
+
 # =============================
 # LLM + Agent
 # =============================
@@ -163,6 +294,12 @@ TOOLS = [
     compare_to_last_week_tool,
     save_weekly_report_tool,
     save_daily_snapshot_tool,
+    refresh_artifact_documents_tool,
+    search_artifact_documents_tool,
+    search_past_weeks_by_category_tool,
+    find_similar_spending_weeks_tool,
+    get_recent_anomalies_tool,
+    search_reports_tool,
 ]
 
 SYSTEM_MESSAGE = (
@@ -175,7 +312,8 @@ SYSTEM_MESSAGE = (
     "  3) 基于 Facts 先列出一个 JSON Facts 小节，然后再写 Markdown 报告（分章节：收入、支出、净现金流、Top 分类/Payees、WoW 对比、异常/大额、建议与预算）；\n"
     "  4) 如用户要求保存或归档，调用 save_weekly_report_tool(markdown)。\n"
     "  5) 请在周报中展示收入来源细分 (income_payee_distribution)\n"
-    "我们默认今年是2025年, 所有分析、报告、默认时间都以此为准。\n"
+    "  6) 当用户询问历史相似周、过往报告、异常记录或之前的建议时，先调用 refresh_artifact_documents_tool。\n"
+    "  7) 针对具体历史检索需求，优先使用专门工具：search_past_weeks_by_category_tool、find_similar_spending_weeks_tool、get_recent_anomalies_tool、search_reports_tool；只有在需求更宽泛时才使用 search_artifact_documents_tool。\n"
 )
 
 

@@ -38,6 +38,10 @@ daily_snapshots/
 # Environment variables
 .env
 
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+
 # Ignore user-specific config
 *.local
 
