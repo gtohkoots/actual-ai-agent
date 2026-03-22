@@ -1,7 +1,7 @@
 pandas
 openai
-langchain
-langchain_community
+langchain>=1.0.0
+langchain-openai>=1.1.11
 python-dotenv
 pytest
 tqdm

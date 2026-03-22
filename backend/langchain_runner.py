@@ -11,9 +11,8 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from langchain.tools import tool
-from langchain.agents import AgentType, initialize_agent
-from langchain.memory import ConversationBufferMemory
-from langchain_community.chat_models import ChatOpenAI
+from langchain.agents import create_agent
+from langchain_openai import ChatOpenAI
 
 # --- project imports ---
 from backend.services import insights
@@ -319,14 +318,10 @@ SYSTEM_MESSAGE = (
 
 def main() -> None:
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    agent = initialize_agent(
+    agent = create_agent(
+        model=llm,
         tools=TOOLS,
-        llm=llm,
-        agent=AgentType.OPENAI_FUNCTIONS,
-        verbose=True,
-        memory=memory,
-        agent_kwargs={"system_message": SYSTEM_MESSAGE},
+        system_prompt=SYSTEM_MESSAGE,
     )
 
     print("\n💼 财务分析助手已启动。示例问题：")
@@ -340,8 +335,11 @@ def main() -> None:
         if query.lower() in {"exit", "quit"}:
             print("再见"); break
         try:
-            resp = agent.run(query)
-            print("\n助手：", resp, "\n")
+            result = agent.invoke({"messages": [{"role": "user", "content": query}]})
+            messages = result.get("messages", []) if isinstance(result, dict) else []
+            final_message = messages[-1] if messages else None
+            content = getattr(final_message, "content", None) if final_message is not None else None
+            print("\n助手：", content or result, "\n")
         except Exception as e:
             print(f"错误: {e}\n")
 

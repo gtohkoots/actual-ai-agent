@@ -225,7 +225,7 @@ Run the regression tests with:
 ## Notes And Limitations
 
 - The app currently assumes a Chinese-language reporting workflow.
-- The agent uses LangChain's older import path for `ChatOpenAI`, so you may see deprecation warnings during tests or execution.
+- The backend now uses the LangChain v1 agent API and `langchain-openai` for model access, so you should not see the older `ChatOpenAI` deprecation warning anymore.
 - The app depends on the schema of an Actual Budget SQLite database.
 - This project currently does not implement a true historical retrieval or vector-based RAG layer.
 

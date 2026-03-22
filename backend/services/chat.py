@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 from pydantic import BaseModel, Field
-from langchain_community.chat_models import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 
 from backend.services.documents import (
     find_similar_spending_weeks,
