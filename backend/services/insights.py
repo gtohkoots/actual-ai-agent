@@ -9,11 +9,11 @@ import os
 import numpy as np
 import pandas as pd
 
-from services.filters import filter_ignored_payment
+from backend.services.filters import filter_ignored_payment
 
 try:
     # Prefer your existing loader if present
-    from utils.db import get_transactions_in_date_range
+    from backend.utils.db import get_transactions_in_date_range
 except Exception:
     get_transactions_in_date_range = None  # type: ignore
 
@@ -159,6 +159,7 @@ def compare_week_over_week(
     start_date: str,
     end_date: str,
     df: Optional[pd.DataFrame] = None,
+    previous_df: Optional[pd.DataFrame] = None,
     top_n_category_changes: int = 10,
 ) -> Dict:
     """Compare current window with previous week. Return deltas and category change leaderboard."""
@@ -169,7 +170,7 @@ def compare_week_over_week(
     last_start = (s - timedelta(days=7)).isoformat()
     last_end = (e - timedelta(days=7)).isoformat()
 
-    prev_df = _ensure_df(None, last_start, last_end)
+    prev_df = _ensure_df(previous_df, last_start, last_end)
 
     def totals(frame: pd.DataFrame) -> Dict[str, float]:
         inc = float(frame.loc[frame["amount"] > 0, "amount"].sum().round(2))

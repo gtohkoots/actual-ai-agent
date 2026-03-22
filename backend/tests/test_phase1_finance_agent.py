@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from langchain_runner import get_weekly_data_tool
-from services.filters import filter_ignored_payment
-from services.insights import get_week_rollups, save_daily_snapshot
-from utils.db import get_transactions_in_date_range
+from backend.langchain_runner import get_weekly_data_tool
+from backend.services.filters import filter_ignored_payment
+from backend.services.insights import get_week_rollups, save_daily_snapshot
+from backend.utils.db import get_transactions_in_date_range
 
 
 def test_get_transactions_in_date_range_converts_amounts_and_exposes_aliases():

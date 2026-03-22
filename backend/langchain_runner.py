@@ -13,11 +13,11 @@ from pydantic import BaseModel, Field
 from langchain.tools import tool
 from langchain.agents import AgentType, initialize_agent
 from langchain.memory import ConversationBufferMemory
-from langchain.chat_models import ChatOpenAI
+from langchain_community.chat_models import ChatOpenAI
 
 # --- project imports ---
-from services import insights
-from services.documents import (
+from backend.services import insights
+from backend.services.documents import (
     find_similar_spending_weeks,
     get_recent_anomalies,
     rebuild_document_store,
@@ -25,7 +25,7 @@ from services.documents import (
     search_past_weeks_by_category,
     search_reports,
 )
-from utils.db import get_transactions_in_date_range
+from backend.utils.db import get_transactions_in_date_range
 
 
 # =============================

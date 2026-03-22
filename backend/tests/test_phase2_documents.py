@@ -2,9 +2,9 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from services.documents import (
+from backend.services.documents import (
     find_similar_spending_weeks,
     get_recent_anomalies,
     rebuild_document_store,

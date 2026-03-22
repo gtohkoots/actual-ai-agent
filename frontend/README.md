@@ -1,12 +1,15 @@
 # Frontend Prototype
 
-This folder now contains a React frontend for the finance agent UI, using mocked data so we can iterate on product flow before wiring the backend.
+This folder contains the React frontend for the finance agent UI. The dashboard still uses mocked financial data for now, but the chatbot is wired to the backend API.
 
 ## Included
 
 - [index.html](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend/index.html): Vite entry HTML
 - [package.json](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend/package.json): React app scripts and dependencies
 - [src/App.jsx](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend/src/App.jsx): main React app
+- [src/components/ChatPanel.jsx](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend/src/components/ChatPanel.jsx): interactive AI chatbot interface
+- [src/chat/api.js](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend/src/chat/api.js): chat API client for the backend endpoint
+- [src/chat/mockResponder.js](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend/src/chat/mockResponder.js): welcome-message and mock fallback helpers
 - [src/mockData.js](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend/src/mockData.js): mocked finance/card/chat data
 - [src/styles.css](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend/src/styles.css): visual system and responsive layout
 
@@ -15,6 +18,8 @@ This folder now contains a React frontend for the finance agent UI, using mocked
 - card-first dashboard navigation
 - month-level spending overview
 - contextual AI chat panel
+- Markdown-rendered assistant replies
+- source cards and action chips for follow-up interaction
 - category and merchant breakdowns
 - recent transaction table
 - quick prompts that adapt to the selected card
@@ -24,12 +29,20 @@ This folder now contains a React frontend for the finance agent UI, using mocked
 From the repo root:
 
 ```bash
+./.venv/bin/uvicorn backend.app:app --reload
+```
+
+In another terminal:
+
+```bash
 cd frontend
 npm install
 npm run dev
 ```
 
 Then open the local Vite URL shown in the terminal.
+
+If your backend runs somewhere other than `http://127.0.0.1:8000`, set `VITE_BACKEND_URL` before starting Vite.
 
 Generated folders:
 
@@ -40,11 +53,10 @@ These are intentionally ignored by Git and should not be committed.
 
 ## Current Status
 
-This is still using mocked data, but it is now structured as a React app and ready for component-level iteration and backend API integration.
+This is still using mocked dashboard data, but the chatbot now sends real requests to `POST /api/chat`.
 
 ## Recommended Next Steps
 
-1. Keep this layout direction if it feels right.
-2. Add a small backend API layer for cards, transactions, dashboard summaries, and chat.
-3. Replace the mock data with live data from the finance agent.
-4. Split the UI into reusable components as the product solidifies.
+1. Connect the dashboard cards and tables to backend data.
+2. Add streaming responses for the chatbot.
+3. Split the UI into more reusable components as the product solidifies.

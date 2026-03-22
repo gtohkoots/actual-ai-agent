@@ -12,7 +12,13 @@ export const dashboardData = {
       deltaText: "-4.2% vs last month",
       utilizationText: "Dining and travel heavy",
       creditLimit: "$8,000",
-      context: { card: "Amex Green", dateRange: "March 2026", focus: "Travel + Dining" },
+      context: {
+        card: "Amex Green",
+        dateRange: "March 2026",
+        windowStart: "2026-03-01",
+        windowEnd: "2026-03-31",
+        focus: "Travel + Dining",
+      },
       summary: {
         totalSpend: "$1,842.73",
         topCategory: "Travel",
@@ -57,7 +63,13 @@ export const dashboardData = {
       deltaText: "+11.8% vs last month",
       utilizationText: "Groceries and home-heavy",
       creditLimit: "$6,500",
-      context: { card: "BofA Travel Rewards", dateRange: "March 2026", focus: "Groceries + Bills" },
+      context: {
+        card: "BofA Travel Rewards",
+        dateRange: "March 2026",
+        windowStart: "2026-03-01",
+        windowEnd: "2026-03-31",
+        focus: "Groceries + Bills",
+      },
       summary: {
         totalSpend: "$967.24",
         topCategory: "Grocery",
@@ -102,7 +114,13 @@ export const dashboardData = {
       deltaText: "+2.1% vs last month",
       utilizationText: "Mixed lifestyle spending",
       creditLimit: "$12,000",
-      context: { card: "Chase Sapphire", dateRange: "March 2026", focus: "Entertainment + Shopping" },
+      context: {
+        card: "Chase Sapphire",
+        dateRange: "March 2026",
+        windowStart: "2026-03-01",
+        windowEnd: "2026-03-31",
+        focus: "Entertainment + Shopping",
+      },
       summary: {
         totalSpend: "$1,326.88",
         topCategory: "Entertainment",

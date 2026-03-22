@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+import os
+from typing import List
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from backend.services.chat import ChatRequest, ChatResponse, generate_chat_response
+from backend.services.documents import rebuild_document_store, search_documents
+
+
+def _cors_origins() -> List[str]:
+    raw = os.getenv("FRONTEND_ORIGINS", "http://localhost:5173")
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+app = FastAPI(title="Finance Agent API", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins(),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/api/health")
+def health() -> dict:
+    return {"status": "ok"}
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+def chat(request: ChatRequest) -> ChatResponse:
+    return generate_chat_response(request)
+
+
+@app.post("/api/documents/rebuild")
+def rebuild_documents() -> dict:
+    return rebuild_document_store(".")
+
+
+@app.get("/api/documents/search")
+def documents_search(query: str, limit: int = 5) -> list[dict]:
+    return search_documents(query=query, limit=limit)

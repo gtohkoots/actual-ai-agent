@@ -6,7 +6,8 @@ A small personal finance assistant built on top of:
 - Python data processing with `pandas`
 - a LangChain tool-calling agent
 - OpenAI chat models for report generation
-- a React frontend prototype for card-spending exploration and AI chat
+- a React frontend for card-spending exploration and AI chat
+- a dedicated Python backend package under `backend/`
 
 The app reads transactions from your Actual database, computes weekly and daily summaries, and can generate Chinese-language finance reports from those facts.
 
@@ -29,14 +30,8 @@ Generated files are stored in:
 
 ## Project Layout
 
-- [langchain_runner.py](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/langchain_runner.py): interactive CLI app and agent tools
-- [utils/db.py](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/utils/db.py): SQLite access layer for Actual transactions
-- [services/insights.py](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/services/insights.py): rollups, comparisons, anomaly helpers, and snapshot logic
-- [services/documents.py](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/services/documents.py): historical artifact ingestion and retrieval helpers
-- [services/filters.py](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/services/filters.py): filters for ignored internal payment rows
-- [tests/test_phase1_finance_agent.py](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/tests/test_phase1_finance_agent.py): regression tests for the data normalization fixes
-- [tests/test_phase2_documents.py](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/tests/test_phase2_documents.py): regression tests for document ingestion and retrieval
-- [frontend](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend): React frontend with mocked card, spending, and AI chat data
+- [backend](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/backend): Python backend package, CLI, services, and tests
+- [frontend](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend): React frontend with mocked card/spending data and a live AI chat endpoint
 
 ## Requirements
 
@@ -58,10 +53,10 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-3. Install dependencies:
+3. Install backend dependencies:
 
 ```bash
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 ```
 
 4. Create a `.env` file in the project root:
@@ -79,12 +74,12 @@ AMEX_ACCT_ID=your_account_id
 
 `AMEX_ACCT_ID` is present in the sample environment but is not currently used by the app.
 
-## Run The App
+## Run The Backend
 
 Start the interactive CLI:
 
 ```bash
-./.venv/bin/python langchain_runner.py
+./.venv/bin/python -m backend.langchain_runner
 ```
 
 You will see example prompts such as:
@@ -94,6 +89,19 @@ You will see example prompts such as:
 - `这周和上周相比，支出变化如何？`
 
 Type `exit` or `quit` to leave the app.
+
+Or start the API server for the frontend chatbot:
+
+```bash
+./.venv/bin/uvicorn backend.app:app --reload
+```
+
+The frontend can call:
+
+- `GET /api/health`
+- `POST /api/chat`
+- `POST /api/documents/rebuild`
+- `GET /api/documents/search`
 
 ## Run The Frontend
 

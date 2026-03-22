@@ -29,6 +29,8 @@ def get_transactions_in_date_range(
     db_path: Optional[str] = None,
     join_names: bool = True,
     dollars: bool = True,
+    account_pid: Optional[str] = None,
+    account_name: Optional[str] = None,
     columns: Optional[Iterable[str]] = None,
     debug: bool = True,
 ) -> pd.DataFrame:
@@ -82,6 +84,11 @@ def get_transactions_in_date_range(
         tx = tx.merge(categories, left_on="category", right_on="category_id", how="left")
         tx = tx.merge(accounts, left_on="acct", right_on="account_pid", how="left")
 
+    if account_pid is not None:
+        tx = tx[tx["acct"].astype(str) == str(account_pid)]
+    if account_name is not None and "account_name" in tx.columns:
+        tx = tx[tx["account_name"].astype(str) == str(account_name)]
+
     if dollars and "amount" in tx.columns:
         tx["amount"] = (tx["amount"].astype(float) / 100).round(2)
 
@@ -102,4 +109,3 @@ def get_transactions_in_date_range(
         print("total rows returned:", len(df))
 
     return df
-
