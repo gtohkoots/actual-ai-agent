@@ -1,6 +1,6 @@
 # Frontend Prototype
 
-This folder contains the React frontend for the finance agent UI. The dashboard still uses mocked financial data for now, but the chatbot is wired to the backend API.
+This folder contains the React frontend for the finance agent UI. The dashboard now loads live account and summary data from the backend, and the chatbot is wired to the backend API.
 
 ## Included
 
@@ -10,7 +10,7 @@ This folder contains the React frontend for the finance agent UI. The dashboard 
 - [src/components/ChatPanel.jsx](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend/src/components/ChatPanel.jsx): interactive AI chatbot interface
 - [src/chat/api.js](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend/src/chat/api.js): chat API client for the backend endpoint
 - [src/chat/mockResponder.js](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend/src/chat/mockResponder.js): welcome-message and mock fallback helpers
-- [src/mockData.js](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend/src/mockData.js): mocked finance/card/chat data
+- [src/mockData.js](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend/src/mockData.js): legacy mocked finance/card/chat data used as a design fallback
 - [src/styles.css](/Users/ketia/Documents/Actual/My-Finances-b5b9544/finance-agent/frontend/src/styles.css): visual system and responsive layout
 
 ## What This Prototype Demonstrates
@@ -20,6 +20,7 @@ This folder contains the React frontend for the finance agent UI. The dashboard 
 - contextual AI chat panel
 - Markdown-rendered assistant replies
 - source cards and action chips for follow-up interaction
+- selected-card context includes `account_pid` so the backend loads the right account deterministically
 - category and merchant breakdowns
 - recent transaction table
 - quick prompts that adapt to the selected card
@@ -53,10 +54,10 @@ These are intentionally ignored by Git and should not be committed.
 
 ## Current Status
 
-This is still using mocked dashboard data, but the chatbot now sends real requests to `POST /api/chat`.
+The UI now hydrates accounts and dashboard summaries from `GET /api/accounts` and `GET /api/dashboard`, while the chatbot continues to send real requests to `POST /api/chat`.
 
 ## Recommended Next Steps
 
-1. Connect the dashboard cards and tables to backend data.
+1. Connect the transactions table to its own backend endpoint so it can be paginated and filtered.
 2. Add streaming responses for the chatbot.
 3. Split the UI into more reusable components as the product solidifies.

@@ -23,6 +23,41 @@ def _to_yyyymmdd_int(date_str: str) -> int:
     return int(pd.to_datetime(date_str).strftime("%Y%m%d"))
 
 
+def _normalize_account_name(value: Optional[str]) -> str:
+    return " ".join((value or "").strip().lower().split())
+
+
+def resolve_account_reference(
+    db_path: Optional[str] = None,
+    account_pid: Optional[str] = None,
+    account_name: Optional[str] = None,
+) -> Optional[dict]:
+    """
+    Resolve an account selector to a canonical account row.
+
+    PID takes priority. Name is only used when no PID is provided or the PID is missing.
+    """
+    with get_connection(db_path) as conn:
+        if account_pid:
+            row = conn.execute(
+                "SELECT id AS account_pid, name AS account_name FROM accounts WHERE id = ?",
+                (account_pid,),
+            ).fetchone()
+            if row is not None:
+                return dict(row)
+
+        if account_name:
+            normalized = _normalize_account_name(account_name)
+            rows = conn.execute(
+                "SELECT id AS account_pid, name AS account_name FROM accounts"
+            ).fetchall()
+            for row in rows:
+                if _normalize_account_name(row["account_name"]) == normalized:
+                    return dict(row)
+
+    return None
+
+
 def get_transactions_in_date_range(
     start_date: str,
     end_date: str,
@@ -44,8 +79,17 @@ def get_transactions_in_date_range(
     s_int = _to_yyyymmdd_int(start_date)
     e_int = _to_yyyymmdd_int(end_date)
 
-    if debug:
-        print(f"Loading transactions from {start_date} to {end_date} ({s_int} to {e_int})")
+    resolved_account = resolve_account_reference(
+        db_path=db_path,
+        account_pid=account_pid,
+        account_name=account_name,
+    )
+    if account_pid and resolved_account is None:
+        raise RuntimeError(f"Account PID {account_pid!r} was not found in the accounts table.")
+    if not account_pid and account_name and resolved_account is None:
+        raise RuntimeError(f"Account name {account_name!r} was not found in the accounts table.")
+
+    print(f"Loading transactions from {start_date} to {end_date} ({s_int} to {e_int})")
 
     with get_connection(db_path) as conn:
         tx = pd.read_sql_query(
@@ -84,10 +128,8 @@ def get_transactions_in_date_range(
         tx = tx.merge(categories, left_on="category", right_on="category_id", how="left")
         tx = tx.merge(accounts, left_on="acct", right_on="account_pid", how="left")
 
-    if account_pid is not None:
-        tx = tx[tx["acct"].astype(str) == str(account_pid)]
-    if account_name is not None and "account_name" in tx.columns:
-        tx = tx[tx["account_name"].astype(str) == str(account_name)]
+    if resolved_account is not None:
+        tx = tx[tx["acct"].astype(str) == str(resolved_account["account_pid"])]
 
     if dollars and "amount" in tx.columns:
         tx["amount"] = (tx["amount"].astype(float) / 100).round(2)
@@ -104,8 +146,7 @@ def get_transactions_in_date_range(
 
     df = df.sort_values("date").reset_index(drop=True)
 
-    if debug:
-        print("final flattened DataFrame columns:", df.columns.tolist())
-        print("total rows returned:", len(df))
+    print("final flattened DataFrame columns:", df.columns.tolist())
+    print("total rows returned:", len(df))
 
     return df

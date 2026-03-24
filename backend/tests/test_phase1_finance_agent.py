@@ -13,31 +13,31 @@ from backend.utils.db import get_transactions_in_date_range
 
 
 def test_get_transactions_in_date_range_converts_amounts_and_exposes_aliases():
-    df = get_transactions_in_date_range("2025-09-15", "2025-09-15", debug=False)
+    df = get_transactions_in_date_range("2026-03-16", "2026-03-16", debug=False)
 
     assert "category" in df.columns
     assert "account" in df.columns
     assert df["amount"].dtype.kind == "f"
-    assert df.iloc[0]["amount"] == -1000.00
+    assert df.iloc[0]["amount"] == -178.73
 
 
 def test_week_rollups_use_human_category_names():
-    payload = get_week_rollups("2025-09-15", "2025-09-21")
+    payload = get_week_rollups("2026-03-16", "2026-03-22")
     categories = {item["category"] for item in payload["by_category"]}
 
     assert "nan" not in categories
     assert "(uncategorized)" not in categories
-    assert "Travel" in categories
+    assert "Grocery" in categories
     assert "Food" in categories
 
 
 def test_get_weekly_data_tool_returns_dollar_amounts_and_category_fields():
     payload = json.loads(
-        get_weekly_data_tool.invoke({"start_date": "2025-09-15", "end_date": "2025-09-15"})
+        get_weekly_data_tool.invoke({"start_date": "2026-03-16", "end_date": "2026-03-16"})
     )
 
     assert payload
-    assert payload[0]["amount"] == -1000.0
+    assert payload[0]["amount"] == -178.73
     assert "category" in payload[0]
     assert "account" in payload[0]
 

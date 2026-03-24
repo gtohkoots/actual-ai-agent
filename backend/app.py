@@ -6,6 +6,7 @@ from typing import List
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.services.dashboard import DashboardOverview, list_accounts, build_dashboard_overview
 from backend.services.chat import ChatRequest, ChatResponse, generate_chat_response
 from backend.services.documents import rebuild_document_store, search_documents
 
@@ -28,6 +29,16 @@ app.add_middleware(
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/api/accounts")
+def accounts() -> list[dict]:
+    return list_accounts()
+
+
+@app.get("/api/dashboard", response_model=DashboardOverview)
+def dashboard(start_date: str | None = None, end_date: str | None = None) -> DashboardOverview:
+    return build_dashboard_overview(start_date=start_date, end_date=end_date)
 
 
 @app.post("/api/chat", response_model=ChatResponse)

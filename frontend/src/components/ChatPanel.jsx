@@ -19,7 +19,8 @@ function ChatPanel({ card }) {
   const chatContext = useMemo(
     () => ({
       selected_tab: "AI Assistant",
-      account_name: card.context.card,
+      account_pid: card.context.accountPid,
+      account_name: card.context.accountName || card.context.card,
       card_label: card.name,
       start_date: card.context.windowStart,
       end_date: card.context.windowEnd,

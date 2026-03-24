@@ -101,6 +101,7 @@ def _build_sources_from_weekly_rollup(rollup: Dict[str, Any]) -> List[ChatSource
 
 
 def _load_context_transactions(context: ChatContext, start_date: str, end_date: str):
+    print(f"Loading transactions for context: account_pid={context.account_pid}, account_name={context.account_name}, category={context.focus_category}, payee={context.focus_payee}")
     return get_transactions_in_date_range(
         start_date,
         end_date,

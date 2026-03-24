@@ -98,6 +98,8 @@ Or start the API server for the frontend chatbot:
 
 The frontend can call:
 
+- `GET /api/accounts`
+- `GET /api/dashboard`
 - `GET /api/health`
 - `POST /api/chat`
 - `POST /api/documents/rebuild`
@@ -228,6 +230,7 @@ Run the regression tests with:
 - The backend now uses the LangChain v1 agent API and `langchain-openai` for model access, so you should not see the older `ChatOpenAI` deprecation warning anymore.
 - The app depends on the schema of an Actual Budget SQLite database.
 - This project currently does not implement a true historical retrieval or vector-based RAG layer.
+- Future hardening idea: replace frontend-visible account PIDs with opaque account keys and add backend authorization checks once the app is multi-user.
 
 ## Troubleshooting
 
