@@ -3,11 +3,12 @@ from __future__ import annotations
 import os
 from typing import List
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.services.dashboard import DashboardOverview, list_accounts, build_dashboard_overview
-from backend.services.chat import ChatRequest, ChatResponse, generate_chat_response
+from backend.services.chat import ChatRequest, ChatResponse, ConversationThread, generate_chat_response
+from backend.services.conversations import list_conversations, load_conversation
 from backend.services.documents import rebuild_document_store, search_documents
 
 
@@ -44,6 +45,19 @@ def dashboard(start_date: str | None = None, end_date: str | None = None) -> Das
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
     return generate_chat_response(request)
+
+
+@app.get("/api/chat/conversations/{conversation_id}", response_model=ConversationThread)
+def chat_conversation(conversation_id: str) -> ConversationThread:
+    try:
+        return ConversationThread.model_validate(load_conversation(conversation_id))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Conversation not found") from exc
+
+
+@app.get("/api/chat/conversations")
+def chat_conversations(account_pid: str | None = None, limit: int = 8) -> list[dict]:
+    return list_conversations(account_pid=account_pid, limit=limit)
 
 
 @app.post("/api/documents/rebuild")

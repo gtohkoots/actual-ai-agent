@@ -20,6 +20,7 @@ from backend.services.documents import (
     search_past_weeks_by_category,
     search_reports,
 )
+from backend.services.conversations import append_message, load_conversation
 from backend.services.insights import compare_week_over_week, get_week_rollups
 from backend.utils.db import get_transactions_in_date_range
 
@@ -59,6 +60,24 @@ class ChatResponse(BaseModel):
     actions: List[str] = Field(default_factory=list)
     facts: Dict[str, Any] = Field(default_factory=dict)
     retrieval_strategy: List[str] = Field(default_factory=list)
+
+
+class ConversationMessage(BaseModel):
+    role: str
+    content: str
+    created_at: Optional[str] = None
+
+
+class ConversationThread(BaseModel):
+    conversation_id: str
+    account_pid: Optional[str] = None
+    account_name: Optional[str] = None
+    card_label: Optional[str] = None
+    context: Dict[str, Any] = Field(default_factory=dict)
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    last_message_at: Optional[str] = None
+    messages: List[ConversationMessage] = Field(default_factory=list)
 
 
 def _current_week_range() -> tuple[str, str]:
@@ -217,7 +236,7 @@ def _json_safe(value: Any) -> Any:
 
 
 def _build_prompt_payload(request: ChatRequest, facts: Dict[str, Any]) -> str:
-    history = request.history[-8:]
+    history = _conversation_history_for_prompt(request)
     payload = {
         "user_message": request.message,
         "history": [turn.model_dump() for turn in history],
@@ -225,6 +244,23 @@ def _build_prompt_payload(request: ChatRequest, facts: Dict[str, Any]) -> str:
         "facts": _json_safe(facts),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _conversation_history_for_prompt(request: ChatRequest) -> List[ChatMessageInput]:
+    if request.history:
+        return request.history[-8:]
+    if not request.conversation_id:
+        return []
+    try:
+        thread = load_conversation(request.conversation_id)
+    except KeyError:
+        return []
+    messages = [
+        ChatMessageInput(role=message["role"], content=message["content"])
+        for message in thread.get("messages", [])
+        if message.get("role") in {"user", "assistant"}
+    ]
+    return messages[-8:]
 
 
 def _fallback_response(request: ChatRequest, facts: Dict[str, Any], reason: Optional[str] = None) -> ChatResponse:
@@ -277,9 +313,23 @@ def _parse_model_payload(raw: str) -> Dict[str, Any]:
 def generate_chat_response(request: ChatRequest) -> ChatResponse:
     facts = _build_retrieval_pack(request)
     conversation_id = request.conversation_id or str(uuid.uuid4())
+    request_context = request.context.model_dump()
+    append_message(
+        conversation_id,
+        "user",
+        request.message,
+        context=request_context,
+    )
     openai_key = os.getenv("OPENAI_API_KEY")
     if not openai_key:
-        return _fallback_response(request, facts)
+        fallback = _fallback_response(request, facts)
+        append_message(
+            conversation_id,
+            "assistant",
+            fallback.content,
+            context=request_context,
+        )
+        return fallback.model_copy(update={"conversation_id": conversation_id})
 
     system_prompt = (
         "You are a finance copilot embedded in a product dashboard. "
@@ -319,9 +369,15 @@ def generate_chat_response(request: ChatRequest) -> ChatResponse:
             facts,
             "The model request failed, so this is a structured fallback response.",
         )
+        append_message(
+            conversation_id,
+            "assistant",
+            fallback.content,
+            context=request_context,
+        )
         return fallback.model_copy(update={"conversation_id": conversation_id})
 
-    return ChatResponse(
+    result = ChatResponse(
         conversation_id=conversation_id,
         content=content,
         sources=sources or facts["sources"],
@@ -329,3 +385,10 @@ def generate_chat_response(request: ChatRequest) -> ChatResponse:
         facts={k: v for k, v in facts.items() if k not in {"sources", "strategies"}},
         retrieval_strategy=facts["strategies"],
     )
+    append_message(
+        conversation_id,
+        "assistant",
+        result.content,
+        context=request_context,
+    )
+    return result

@@ -4,18 +4,24 @@ import { Bot, ChevronRight, LoaderCircle, SendHorizontal, Sparkles, WandSparkles
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { sendChatMessage } from "../chat/api";
-import { createWelcomeMessage, summarizeContext } from "../chat/mockResponder";
+import { fetchChatConversation, fetchChatConversations, sendChatMessage } from "../chat/api";
+import { createWelcomeMessage } from "../chat/mockResponder";
 
-function ChatPanel({ card }) {
+function ChatPanel({ card, seedMessage = "", seedMessageId = "", onSeedConsumed = () => {} }) {
   const [messages, setMessages] = useState(() => [createWelcomeMessage(card)]);
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [conversationId, setConversationId] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [isThreadReady, setIsThreadReady] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [recentThreads, setRecentThreads] = useState([]);
+  const [isLoadingThreads, setIsLoadingThreads] = useState(false);
   const feedRef = useRef(null);
+  const conversationIdRef = useRef(null);
+  const consumedSeedRef = useRef("");
+  const storageKey = useMemo(() => `finance-agent:conversation:${card.context.accountPid}`, [card.context.accountPid]);
 
-  const contextLines = useMemo(() => summarizeContext(card), [card]);
   const chatContext = useMemo(
     () => ({
       selected_tab: "AI Assistant",
@@ -31,12 +37,97 @@ function ChatPanel({ card }) {
   );
 
   useEffect(() => {
-    setMessages([createWelcomeMessage(card)]);
-    setDraft("");
-    setIsSending(false);
-    setConversationId(null);
-    setErrorMessage("");
-  }, [card]);
+    let cancelled = false;
+
+    async function restoreConversation() {
+      setMessages([createWelcomeMessage(card)]);
+      setDraft("");
+      setIsSending(false);
+      setErrorMessage("");
+      setIsThreadReady(false);
+      setHistoryOpen(false);
+
+      const savedConversationId = window.localStorage.getItem(storageKey);
+      if (!savedConversationId) {
+        setConversationId(null);
+        setIsThreadReady(true);
+        return;
+      }
+
+      try {
+        const thread = await fetchChatConversation(savedConversationId);
+        if (cancelled) return;
+        if (!thread || thread.account_pid !== card.context.accountPid) {
+          window.localStorage.removeItem(storageKey);
+          setConversationId(null);
+          setIsThreadReady(true);
+          return;
+        }
+
+        setConversationId(thread.conversation_id);
+        setMessages(
+          (thread.messages || []).length
+            ? thread.messages.map((message) => ({
+                id: `${thread.conversation_id}-${message.created_at || message.role}-${message.role}`,
+                role: message.role,
+                content: message.content,
+                createdAt: message.created_at,
+              }))
+            : [createWelcomeMessage(card)]
+        );
+      } catch {
+        if (cancelled) return;
+        window.localStorage.removeItem(storageKey);
+        setConversationId(null);
+        setMessages([createWelcomeMessage(card)]);
+      } finally {
+        if (!cancelled) {
+          setIsThreadReady(true);
+        }
+      }
+    }
+
+    void restoreConversation();
+    return () => {
+      cancelled = true;
+    };
+  }, [card, storageKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadThreads() {
+      setIsLoadingThreads(true);
+      try {
+        const threads = await fetchChatConversations(card.context.accountPid, 6);
+        if (!cancelled) {
+          setRecentThreads(threads);
+        }
+      } catch {
+        if (!cancelled) {
+          setRecentThreads([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingThreads(false);
+        }
+      }
+    }
+
+    void loadThreads();
+    return () => {
+      cancelled = true;
+    };
+  }, [card.context.accountPid, conversationId]);
+
+  useEffect(() => {
+    conversationIdRef.current = conversationId;
+    if (conversationId) {
+      window.localStorage.setItem(storageKey, conversationId);
+    } else {
+      window.localStorage.removeItem(storageKey);
+    }
+  }, [conversationId, storageKey]);
 
   useEffect(() => {
     const el = feedRef.current;
@@ -56,12 +147,33 @@ function ChatPanel({ card }) {
     void submitMessage(prompt);
   }
 
+  async function loadConversationThread(threadId) {
+    try {
+      const thread = await fetchChatConversation(threadId);
+      setConversationId(thread.conversation_id || null);
+      setMessages(
+        (thread.messages || []).length
+          ? thread.messages.map((message) => ({
+              id: `${thread.conversation_id}-${message.created_at || message.role}-${message.role}`,
+              role: message.role,
+              content: message.content,
+              createdAt: message.created_at,
+            }))
+          : [createWelcomeMessage(card)]
+      );
+      setHistoryOpen(false);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to load conversation history");
+    }
+  }
+
   async function submitMessage(text) {
     const userMessage = {
       id: `user-${Date.now()}`,
       role: "user",
       content: text,
     };
+    const nextHistory = [...messages, userMessage];
 
     setMessages((current) => [...current, userMessage]);
     setDraft("");
@@ -81,8 +193,8 @@ function ChatPanel({ card }) {
     try {
       const response = await sendChatMessage({
         message: text,
-        conversationId,
-        history: messages,
+        conversationId: conversationIdRef.current,
+        history: nextHistory,
         context: chatContext,
       });
 
@@ -123,6 +235,16 @@ function ChatPanel({ card }) {
     }
   }
 
+  useEffect(() => {
+    if (!seedMessage || !seedMessageId || !isThreadReady || seedMessageId === consumedSeedRef.current) {
+      return;
+    }
+
+    consumedSeedRef.current = seedMessageId;
+    onSeedConsumed();
+    void submitMessage(seedMessage);
+  }, [seedMessage, seedMessageId, isThreadReady, onSeedConsumed]);
+
   function handleActionChip(action) {
     if (!isSending) {
       void submitMessage(action);
@@ -134,30 +256,27 @@ function ChatPanel({ card }) {
       <div className="panel-header">
         <div>
           <p className="section-label">AI Copilot</p>
-          <h3>Context-aware finance chat</h3>
+          <h3>Finance chat</h3>
         </div>
-        <span className="panel-note">
-          <Sparkles size={14} /> Backend connected
-        </span>
-      </div>
-
-      {errorMessage ? (
-        <div className="chat-error" role="alert">
-          {errorMessage}
-        </div>
-      ) : null}
-
-      <div className="chat-context">
-        {contextLines.map((line) => (
-          <span key={line} className="chat-context-chip">
-            {line}
+        <div className="chat-header-actions">
+          <button className="ghost-button chat-mini-button" type="button" onClick={() => setHistoryOpen((current) => !current)}>
+            History
+          </button>
+          <span className="panel-note">
+            <Sparkles size={14} /> Live
           </span>
-        ))}
+        </div>
       </div>
 
-      <div className="chat-toolbar">
-        {card.quickPrompts.map((prompt) => (
-          <button key={prompt} className="suggestion-chip" type="button" onClick={() => handleQuickPrompt(prompt)}>
+      <div className="chat-context compact">
+        <span className="chat-context-chip">Card: {card.context.card}</span>
+        <span className="chat-context-chip">Window: {card.context.dateRange}</span>
+        <span className="chat-context-chip">Focus: {card.context.focus}</span>
+      </div>
+
+      <div className="chat-slim-prompts">
+        {card.quickPrompts.slice(0, 3).map((prompt) => (
+          <button key={prompt} className="suggestion-chip suggestion-chip--slim" type="button" onClick={() => handleQuickPrompt(prompt)}>
             <WandSparkles size={14} />
             {prompt}
           </button>
@@ -184,23 +303,9 @@ function ChatPanel({ card }) {
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
             </div>
 
-            {message.sources?.length ? (
-              <div className="chat-sources">
-                <div className="chat-subtitle">Sources</div>
-                <div className="source-grid">
-                  {message.sources.map((source) => (
-                    <div key={`${message.id}-${source.label}`} className="source-card">
-                      <strong>{source.label}</strong>
-                      <span>{source.detail}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
             {message.actions?.length ? (
-              <div className="chat-actions">
-                {message.actions.map((action) => (
+              <div className="chat-actions compact">
+                {message.actions.slice(0, 3).map((action) => (
                   <button
                     key={`${message.id}-${action}`}
                     className="action-chip"
@@ -217,25 +322,55 @@ function ChatPanel({ card }) {
         ))}
       </div>
 
-      <form className="chat-form" onSubmit={handleSubmit}>
+      <form className="chat-form chat-form--sticky" onSubmit={handleSubmit}>
         <label className="sr-only" htmlFor="chatInput">
           Chat input
         </label>
         <textarea
           id="chatInput"
-          rows="3"
-          placeholder="Ask about the selected card, a merchant, a spike, or a category trend..."
+          rows="2"
+          placeholder="Ask about this card or a specific transaction..."
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
         />
         <div className="chat-form-footer">
-          <span className="panel-note">Markdown responses and citations will render here.</span>
+          <span className="panel-note">Responses stay tied to this card.</span>
           <button className="primary-button" type="submit" disabled={isSending}>
             <SendHorizontal size={16} />
             Send
           </button>
         </div>
       </form>
+
+      {historyOpen ? (
+        <div className="chat-history-drawer">
+          <div className="chat-history-header">
+            <strong>Recent conversations</strong>
+            <button className="ghost-button chat-mini-button" type="button" onClick={() => setHistoryOpen(false)}>
+              Close
+            </button>
+          </div>
+          <div className="chat-history-list">
+            {isLoadingThreads ? (
+              <p className="panel-note">Loading history...</p>
+            ) : recentThreads.length ? (
+              recentThreads.map((thread) => (
+                <button key={thread.conversation_id} className="chat-history-item" type="button" onClick={() => loadConversationThread(thread.conversation_id)}>
+                  <div className="chat-history-item-top">
+                    <strong>{thread.card_label || thread.account_name || "Conversation"}</strong>
+                    <span>{thread.message_count} msgs</span>
+                  </div>
+                  <p>{thread.preview || "No preview available"}</p>
+                </button>
+              ))
+            ) : (
+              <p className="panel-note">No saved conversations for this card yet.</p>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {errorMessage ? <div className="chat-error chat-error--compact" role="alert">{errorMessage}</div> : null}
     </aside>
   );
 }

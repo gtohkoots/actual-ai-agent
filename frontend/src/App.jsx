@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { LayoutDashboard, Sparkles } from "lucide-react";
 
 import ChatPanel from "./components/ChatPanel";
 import { fetchAccounts, fetchDashboardOverview } from "./api/dashboard";
 
-const navItems = ["Overview", "Cards", "Transactions", "Reports", "AI Assistant"];
+const navItems = ["Overview", "Cards", "Transactions", "Reports"];
 
 const CARD_TINTS = [
   "linear-gradient(135deg, #235446 0%, #122b24 100%)",
@@ -78,6 +79,7 @@ function App() {
   const [dashboard, setDashboard] = useState(null);
   const [selectedCardId, setSelectedCardId] = useState(null);
   const [activeTab, setActiveTab] = useState("Overview");
+  const [assistantSeed, setAssistantSeed] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -148,6 +150,28 @@ function App() {
     setActiveTab("Overview");
   }
 
+  function handleAssistantOpen() {
+    setActiveTab("AI Assistant");
+  }
+
+  function handleDashboardOpen() {
+    setActiveTab("Overview");
+  }
+
+  function handleTransactionAsk(transaction) {
+    if (!selectedCard) return;
+    const prompt = `Explain this transaction on ${selectedCard.name}: ${transaction.date} · ${transaction.merchant} · ${currency(transaction.amount)} · ${transaction.category}. Is it expected or unusual?`;
+    setAssistantSeed({
+      id: `${selectedCard.id}-${transaction.date}-${transaction.merchant}-${Date.now()}`,
+      text: prompt,
+    });
+    setActiveTab("AI Assistant");
+  }
+
+  function clearAssistantSeed() {
+    setAssistantSeed(null);
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -216,25 +240,7 @@ function App() {
         ) : selectedCard ? (
           isAssistantView ? (
             <section className="assistant-stage">
-              <div className="assistant-intro panel">
-                <p className="section-label">AI Assistant</p>
-                <h3>Chat with your finance data in context</h3>
-                <p className="section-copy">
-                  The selected card still anchors the conversation, but this view puts the chatbot first so the
-                  assistant feels like the primary workflow.
-                </p>
-                <div className="assistant-mini-stats">
-                  {stats.map((stat) => (
-                    <article key={stat.label} className="assistant-stat">
-                      <p className="section-label">{stat.label}</p>
-                      <strong>{stat.value}</strong>
-                      <span>{stat.note}</span>
-                    </article>
-                  ))}
-                </div>
-              </div>
-
-              <ChatPanel card={selectedCard} />
+              <ChatPanel card={selectedCard} seedMessage={assistantSeed?.text || ""} seedMessageId={assistantSeed?.id || ""} onSeedConsumed={clearAssistantSeed} />
             </section>
           ) : (
             <>
@@ -353,11 +359,27 @@ function App() {
                       </thead>
                       <tbody>
                         {selectedCard.transactions.map((tx) => (
-                          <tr key={`${tx.date}-${tx.merchant}-${tx.amount}`}>
+                          <tr
+                            key={`${tx.date}-${tx.merchant}-${tx.amount}`}
+                            className="transaction-row"
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Ask AI about transaction ${tx.merchant} on ${tx.date} for ${currency(tx.amount)}`}
+                            onClick={() => handleTransactionAsk(tx)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                handleTransactionAsk(tx);
+                              }
+                            }}
+                          >
                             <td>{tx.date}</td>
                             <td>{tx.merchant}</td>
                             <td>{tx.category}</td>
-                            <td className="amount-negative">{currency(tx.amount)}</td>
+                            <td className="amount-negative">
+                              <span>{currency(tx.amount)}</span>
+                              <span className="transaction-ask">Ask AI</span>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -365,11 +387,33 @@ function App() {
                   </div>
                 </article>
 
-                <ChatPanel card={selectedCard} />
+                <ChatPanel
+                  card={selectedCard}
+                  seedMessage={assistantSeed?.text || ""}
+                  seedMessageId={assistantSeed?.id || ""}
+                  onSeedConsumed={clearAssistantSeed}
+                />
               </section>
             </>
           )
         ) : null}
+
+        <button
+          className={`assistant-launcher ${isAssistantView ? "assistant-launcher--active" : ""}`}
+          type="button"
+          onClick={isAssistantView ? handleDashboardOpen : handleAssistantOpen}
+          aria-label={isAssistantView ? "Return to dashboard" : "Open AI assistant"}
+          title={isAssistantView ? "Return to dashboard" : "Open AI assistant"}
+        >
+          <span className="assistant-launcher-ring" aria-hidden="true">
+            <span className="assistant-launcher-core">
+              {isAssistantView ? <LayoutDashboard size={22} /> : <Sparkles size={22} />}
+            </span>
+          </span>
+          <span className="assistant-launcher-label">
+            {isAssistantView ? "Dashboard" : "AI"}
+          </span>
+        </button>
       </main>
     </div>
   );

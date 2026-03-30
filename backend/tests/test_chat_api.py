@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from backend.app import app
 from backend.services.chat import ChatContext, ChatRequest, ChatResponse, ChatSource, generate_chat_response
+from backend.services.conversations import load_conversation
 
 
 def _stub_retrieval_pack(monkeypatch):
@@ -131,3 +132,100 @@ def test_chat_endpoint_uses_chat_service(monkeypatch):
     assert payload["conversation_id"] == "conv-123"
     assert payload["sources"][0]["label"] == "Current window"
     assert payload["actions"] == ["Show similar weeks"]
+
+
+def test_generate_chat_response_persists_conversation(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("ACTUAL_DB_PATH", str(tmp_path / "chat.sqlite"))
+    _stub_retrieval_pack(monkeypatch)
+
+    response = generate_chat_response(
+        ChatRequest(
+            message="What changed on this card?",
+            conversation_id="conv-persist",
+            context=ChatContext(
+                card_label="Visa",
+                account_name="Visa",
+                account_pid="acct-123",
+                start_date="2026-03-16",
+                end_date="2026-03-22",
+            ),
+        )
+    )
+
+    thread = load_conversation(response.conversation_id, db_path=str(tmp_path / "chat.sqlite"))
+    assert thread["conversation_id"] == "conv-persist"
+    assert thread["account_pid"] == "acct-123"
+    assert len(thread["messages"]) == 2
+    assert thread["messages"][0]["role"] == "user"
+    assert thread["messages"][1]["role"] == "assistant"
+
+
+def test_chat_conversation_endpoint_returns_thread(monkeypatch, tmp_path):
+    monkeypatch.setenv("ACTUAL_DB_PATH", str(tmp_path / "chat.sqlite"))
+    _stub_retrieval_pack(monkeypatch)
+
+    generate_chat_response(
+        ChatRequest(
+            message="What changed on this card?",
+            conversation_id="conv-thread",
+            context=ChatContext(
+                card_label="Visa",
+                account_name="Visa",
+                account_pid="acct-456",
+                start_date="2026-03-16",
+                end_date="2026-03-22",
+            ),
+        )
+    )
+
+    client = TestClient(app)
+    response = client.get("/api/chat/conversations/conv-thread")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["conversation_id"] == "conv-thread"
+    assert payload["account_pid"] == "acct-456"
+    assert len(payload["messages"]) == 2
+
+
+def test_chat_conversations_endpoint_lists_recent_threads(monkeypatch, tmp_path):
+    monkeypatch.setenv("ACTUAL_DB_PATH", str(tmp_path / "chat.sqlite"))
+    _stub_retrieval_pack(monkeypatch)
+
+    generate_chat_response(
+        ChatRequest(
+            message="First question",
+            conversation_id="conv-a",
+            context=ChatContext(
+                card_label="Visa",
+                account_name="Visa",
+                account_pid="acct-789",
+                start_date="2026-03-16",
+                end_date="2026-03-22",
+            ),
+        )
+    )
+    generate_chat_response(
+        ChatRequest(
+            message="Second question",
+            conversation_id="conv-b",
+            context=ChatContext(
+                card_label="Visa",
+                account_name="Visa",
+                account_pid="acct-789",
+                start_date="2026-03-16",
+                end_date="2026-03-22",
+            ),
+        )
+    )
+
+    client = TestClient(app)
+    response = client.get("/api/chat/conversations", params={"account_pid": "acct-789", "limit": 5})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 2
+    assert payload[0]["account_pid"] == "acct-789"
+    assert payload[0]["message_count"] == 2
+    assert payload[0]["preview"]

@@ -14,6 +14,8 @@ export const dashboardData = {
       creditLimit: "$8,000",
       context: {
         card: "Amex Green",
+        accountName: "Amex Green Card",
+        accountPid: "9bbb85d7-a78a-4542-a644-5a78184ce110",
         dateRange: "March 2026",
         windowStart: "2026-03-01",
         windowEnd: "2026-03-31",
@@ -65,6 +67,8 @@ export const dashboardData = {
       creditLimit: "$6,500",
       context: {
         card: "BofA Travel Rewards",
+        accountName: "BOA Checking",
+        accountPid: "5c857f11-7465-43e0-9711-7b8166568b48",
         dateRange: "March 2026",
         windowStart: "2026-03-01",
         windowEnd: "2026-03-31",
@@ -105,8 +109,8 @@ export const dashboardData = {
         "This card looks like the best candidate for a practical budgeting view because its spend is concentrated in repeatable categories: groceries, bills, and fuel. That makes it a strong place to surface recurring merchants, compare historical weekly snapshots, and suggest savings opportunities without much noise."
     },
     {
-      id: "sapphire",
-      name: "Chase Sapphire",
+      id: "amex-gold",
+      name: "Amex Gold",
       network: "Visa Infinite",
       tint: "linear-gradient(135deg, #1b2c55 0%, #0d1425 100%)",
       last4: "9008",
@@ -115,7 +119,9 @@ export const dashboardData = {
       utilizationText: "Mixed lifestyle spending",
       creditLimit: "$12,000",
       context: {
-        card: "Chase Sapphire",
+        card: "Amex Gold",
+        accountName: "Amex Gold Card",
+        accountPid: "d37c0ee5-4f84-4204-a929-1a74032975fa",
         dateRange: "March 2026",
         windowStart: "2026-03-01",
         windowEnd: "2026-03-31",
