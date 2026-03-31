@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.services.dashboard import DashboardOverview, list_accounts, build_dashboard_overview
 from backend.services.chat import ChatRequest, ChatResponse, ConversationThread, generate_chat_response
-from backend.services.conversations import list_conversations, load_conversation
+from backend.services.conversations import delete_conversation, list_conversations, load_conversation
 from backend.services.documents import rebuild_document_store, search_documents
 
 
@@ -58,6 +58,11 @@ def chat_conversation(conversation_id: str) -> ConversationThread:
 @app.get("/api/chat/conversations")
 def chat_conversations(account_pid: str | None = None, limit: int = 8) -> list[dict]:
     return list_conversations(account_pid=account_pid, limit=limit)
+
+
+@app.delete("/api/chat/conversations/{conversation_id}", status_code=204)
+def delete_chat_conversation(conversation_id: str) -> None:
+    delete_conversation(conversation_id)
 
 
 @app.post("/api/documents/rebuild")

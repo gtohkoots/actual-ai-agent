@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { LayoutDashboard, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
+import { DayPicker } from "react-day-picker";
+import { startOfMonth, subDays } from "date-fns";
+import "react-day-picker/style.css";
 
 import ChatPanel from "./components/ChatPanel";
 import { fetchAccounts, fetchDashboardOverview } from "./api/dashboard";
 
 const navItems = ["Overview", "Cards", "Transactions", "Reports"];
+const WINDOW_PRESETS = [
+  { value: "month_to_date", label: "Month to date" },
+  { value: "last_30_days", label: "Last 30 days" },
+  { value: "last_7_days", label: "Last 7 days" },
+];
 
 const CARD_TINTS = [
   "linear-gradient(135deg, #235446 0%, #122b24 100%)",
@@ -21,8 +29,42 @@ function currency(value) {
   }).format(value || 0);
 }
 
+function formatLocalDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function pickCardTint(index) {
   return CARD_TINTS[index % CARD_TINTS.length];
+}
+
+function toLocalDate(date) {
+  if (!date) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getPresetRange(preset) {
+  const today = new Date();
+  if (preset === "last_7_days") {
+    return { from: subDays(today, 6), to: today };
+  }
+  if (preset === "last_30_days") {
+    return { from: subDays(today, 29), to: today };
+  }
+  return { from: startOfMonth(today), to: today };
+}
+
+function formatWindowLabel(range) {
+  if (!range?.from || !range?.to) return "Select a window";
+  if (toLocalDate(range.from) === toLocalDate(range.to)) {
+    return toLocalDate(range.from);
+  }
+  return `${toLocalDate(range.from)} to ${toLocalDate(range.to)}`;
 }
 
 function buildCardViewModel(account, index, accountMeta = {}) {
@@ -80,25 +122,38 @@ function App() {
   const [selectedCardId, setSelectedCardId] = useState(null);
   const [activeTab, setActiveTab] = useState("Overview");
   const [assistantSeed, setAssistantSeed] = useState(null);
+  const [windowPreset, setWindowPreset] = useState("month_to_date");
+  const [windowRange, setWindowRange] = useState(() => getPresetRange("month_to_date"));
+  const [windowDraftRange, setWindowDraftRange] = useState(() => getPresetRange("month_to_date"));
+  const [windowPickerOpen, setWindowPickerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false);
   const [error, setError] = useState("");
+
+  const selectedWindow = useMemo(
+    () => ({
+      start: toLocalDate(windowRange.from),
+      end: toLocalDate(windowRange.to),
+      label: formatWindowLabel(windowRange),
+    }),
+    [windowRange]
+  );
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadDashboard() {
-      setLoading(true);
+      const isInitialLoad = !dashboard;
+      if (isInitialLoad) {
+        setLoading(true);
+      } else {
+        setIsRefreshingDashboard(true);
+      }
       setError("");
       try {
-        const [accountsResponse, dashboardResponse] = await Promise.all([
-          fetchAccounts(),
-          fetchDashboardOverview(),
-        ]);
+        const dashboardResponse = await fetchDashboardOverview(selectedWindow.start, selectedWindow.end);
         if (cancelled) return;
-        setAccountsMeta(accountsResponse);
         setDashboard(dashboardResponse);
-        const defaultPid = dashboardResponse?.accounts?.[0]?.account_pid || accountsResponse?.[0]?.account_pid || null;
-        setSelectedCardId(defaultPid);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load dashboard data");
@@ -106,11 +161,34 @@ function App() {
       } finally {
         if (!cancelled) {
           setLoading(false);
+          setIsRefreshingDashboard(false);
         }
       }
     }
 
     void loadDashboard();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWindow.start, selectedWindow.end]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAccounts() {
+      try {
+        const accountsResponse = await fetchAccounts();
+        if (!cancelled) {
+          setAccountsMeta(accountsResponse);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load accounts");
+        }
+      }
+    }
+
+    void loadAccounts();
     return () => {
       cancelled = true;
     };
@@ -154,8 +232,23 @@ function App() {
     setActiveTab("AI Assistant");
   }
 
-  function handleDashboardOpen() {
-    setActiveTab("Overview");
+  function handlePresetSelect(preset) {
+    const range = getPresetRange(preset);
+    setWindowPreset(preset);
+    setWindowRange(range);
+    setWindowDraftRange(range);
+    setWindowPickerOpen(false);
+  }
+
+  function handleWindowSelect(range) {
+    if (!range?.from || !range?.to) {
+      setWindowDraftRange(range);
+      return;
+    }
+    setWindowPreset("custom");
+    setWindowRange(range);
+    setWindowDraftRange(range);
+    setWindowPickerOpen(false);
   }
 
   function handleTransactionAsk(transaction) {
@@ -222,9 +315,46 @@ function App() {
             </p>
           </div>
           <div className="hero-actions">
-            <button className="ghost-button" type="button">
-              {dashboard?.selected_window || "Loading window..."}
-            </button>
+            <div className="window-picker">
+                <button
+                  className="ghost-button window-picker-trigger"
+                  type="button"
+                  onClick={() => {
+                  setWindowDraftRange(undefined);
+                  setWindowPickerOpen((current) => !current);
+                }}
+                aria-expanded={windowPickerOpen}
+              >
+                {windowPreset === "custom"
+                  ? selectedWindow.label
+                  : WINDOW_PRESETS.find((preset) => preset.value === windowPreset)?.label || selectedWindow.label}
+              </button>
+              {windowPickerOpen ? (
+                <div className="window-picker-popover">
+                  <div className="window-picker-presets" role="tablist" aria-label="Date window presets">
+                    {WINDOW_PRESETS.map((preset) => (
+                      <button
+                        key={preset.value}
+                        className={`window-pill ${windowPreset === preset.value ? "active" : ""}`}
+                        type="button"
+                        onClick={() => handlePresetSelect(preset.value)}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="window-picker-note">Click a start date, then an end date to apply a custom range.</p>
+                  <DayPicker
+                    mode="range"
+                    selected={windowDraftRange}
+                    onSelect={handleWindowSelect}
+                    min={1}
+                    numberOfMonths={2}
+                    showOutsideDays
+                  />
+                </div>
+              ) : null}
+            </div>
             <button className="primary-button" type="button">
               Generate weekly insight
             </button>
@@ -238,182 +368,196 @@ function App() {
             {error}
           </div>
         ) : selectedCard ? (
-          isAssistantView ? (
-            <section className="assistant-stage">
-              <ChatPanel card={selectedCard} seedMessage={assistantSeed?.text || ""} seedMessageId={assistantSeed?.id || ""} onSeedConsumed={clearAssistantSeed} />
-            </section>
-          ) : (
-            <>
-              <section className="stats-grid">
-                {stats.map((stat) => (
-                  <article key={stat.label} className="stat-card">
-                    <p className="section-label">{stat.label}</p>
-                    <h3>{stat.value}</h3>
-                    <p>{stat.note}</p>
-                  </article>
-                ))}
-              </section>
+          <div className={`dashboard-scene ${isRefreshingDashboard ? "is-refreshing" : ""}`}>
+            <div className="dashboard-refresh-overlay" aria-hidden="true">
+              <span />
+              <p>Updating window...</p>
+            </div>
 
-              <section className="cards-section">
-                <div className="section-header">
-                  <div>
-                    <p className="section-label">Cards On File</p>
-                    <h3>Select a card to drive the entire workspace</h3>
-                  </div>
-                  <p className="section-copy">
-                    The selected card controls dashboard stats, chart-like summaries, transactions, and default AI
-                    prompts.
-                  </p>
-                </div>
-
-                <div className="card-rail">
-                  {cards.map((card) => (
-                    <button
-                      key={card.id}
-                      className={`finance-card ${card.id === selectedCardId ? "active" : ""}`}
-                      style={{ background: card.tint }}
-                      type="button"
-                      onClick={() => handleCardSelect(card.id)}
-                    >
-                      <div className="card-brand">
-                        <span>{card.network}</span>
-                        <span>{card.transactionCount} tx</span>
-                      </div>
-                      <h4 className="card-name">{card.name}</h4>
-                      <p className="card-metric">{currency(card.balanceCurrent)}</p>
-                      <div className="card-foot">
-                        <span>{card.deltaText}</span>
-                        <span>Balance current</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <section className="dashboard-grid">
-                <article className="panel">
-                  <div className="panel-header">
-                    <div>
-                      <p className="section-label">Category Spend</p>
-                      <h3>Where the money is going</h3>
-                    </div>
-                    <span className="panel-note">Selected card only</span>
-                  </div>
-                  <div className="category-bars">
-                    {selectedCard.categories.map((item) => {
-                      const maxAmount = Math.max(...selectedCard.categories.map((category) => category.amount));
-                      return (
-                        <div key={item.category} className="category-row">
-                          <div className="category-meta">
-                            <strong>{item.category}</strong>
-                            <span>{currency(item.amount)}</span>
-                          </div>
-                          <div className="category-track">
-                            <div className="category-fill" style={{ width: `${(item.amount / maxAmount) * 100}%` }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </article>
-
-                <article className="panel">
-                  <div className="panel-header">
-                    <div>
-                      <p className="section-label">Merchant Highlights</p>
-                      <h3>Top payees this cycle</h3>
-                    </div>
-                    <span className="panel-note">Useful for AI follow-ups</span>
-                  </div>
-                  <div className="merchant-list">
-                    {selectedCard.merchants.map((merchant) => (
-                      <div key={merchant.payee} className="merchant-row">
-                        <div>
-                          <strong>{merchant.payee}</strong>
-                          <div className="panel-note">{merchant.amount}</div>
-                        </div>
-                        <strong>{merchant.amount}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </article>
-              </section>
-
-              <section className="transactions-and-chat">
-                <article className="panel transactions-panel">
-                  <div className="panel-header">
-                    <div>
-                      <p className="section-label">Recent Transactions</p>
-                      <h3>Ask the AI about any row you see here</h3>
-                    </div>
-                  </div>
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Date</th>
-                          <th>Merchant</th>
-                          <th>Category</th>
-                          <th>Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedCard.transactions.map((tx) => (
-                          <tr
-                            key={`${tx.date}-${tx.merchant}-${tx.amount}`}
-                            className="transaction-row"
-                            role="button"
-                            tabIndex={0}
-                            aria-label={`Ask AI about transaction ${tx.merchant} on ${tx.date} for ${currency(tx.amount)}`}
-                            onClick={() => handleTransactionAsk(tx)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                handleTransactionAsk(tx);
-                              }
-                            }}
-                          >
-                            <td>{tx.date}</td>
-                            <td>{tx.merchant}</td>
-                            <td>{tx.category}</td>
-                            <td className="amount-negative">
-                              <span>{currency(tx.amount)}</span>
-                              <span className="transaction-ask">Ask AI</span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </article>
-
+            {isAssistantView ? (
+              <section className="assistant-stage">
                 <ChatPanel
                   card={selectedCard}
+                  analysisWindow={selectedWindow}
                   seedMessage={assistantSeed?.text || ""}
                   seedMessageId={assistantSeed?.id || ""}
                   onSeedConsumed={clearAssistantSeed}
                 />
               </section>
-            </>
-          )
+            ) : (
+              <>
+                <section className="stats-grid">
+                  {stats.map((stat) => (
+                    <article key={stat.label} className="stat-card">
+                      <p className="section-label">{stat.label}</p>
+                      <h3>{stat.value}</h3>
+                      <p>{stat.note}</p>
+                    </article>
+                  ))}
+                </section>
+
+                <section className="cards-section">
+                  <div className="section-header">
+                    <div>
+                      <p className="section-label">Cards On File</p>
+                      <h3>Select a card to drive the entire workspace</h3>
+                    </div>
+                    <p className="section-copy">
+                      The selected card controls dashboard stats, chart-like summaries, transactions, and default AI
+                      prompts.
+                    </p>
+                  </div>
+
+                  <div className="card-rail">
+                    {cards.map((card) => (
+                      <button
+                        key={card.id}
+                        className={`finance-card ${card.id === selectedCardId ? "active" : ""}`}
+                        style={{ background: card.tint }}
+                        type="button"
+                        onClick={() => handleCardSelect(card.id)}
+                      >
+                        <div className="card-brand">
+                          <span>{card.network}</span>
+                          <span>{card.transactionCount} tx</span>
+                        </div>
+                        <h4 className="card-name">{card.name}</h4>
+                        <p className="card-metric">{currency(card.balanceCurrent)}</p>
+                        <div className="card-foot">
+                          <span>{card.deltaText}</span>
+                          <span>Balance current</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="dashboard-grid">
+                  <article className="panel">
+                    <div className="panel-header">
+                      <div>
+                        <p className="section-label">Category Spend</p>
+                        <h3>Where the money is going</h3>
+                      </div>
+                      <span className="panel-note">Selected card only</span>
+                    </div>
+                    <div className="category-bars">
+                      {selectedCard.categories.map((item) => {
+                        const maxAmount = Math.max(...selectedCard.categories.map((category) => category.amount));
+                        return (
+                          <div key={item.category} className="category-row">
+                            <div className="category-meta">
+                              <strong>{item.category}</strong>
+                              <span>{currency(item.amount)}</span>
+                            </div>
+                            <div className="category-track">
+                              <div className="category-fill" style={{ width: `${(item.amount / maxAmount) * 100}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </article>
+
+                  <article className="panel">
+                    <div className="panel-header">
+                      <div>
+                        <p className="section-label">Merchant Highlights</p>
+                        <h3>Top payees this cycle</h3>
+                      </div>
+                      <span className="panel-note">Useful for AI follow-ups</span>
+                    </div>
+                    <div className="merchant-list">
+                      {selectedCard.merchants.map((merchant) => (
+                        <div key={merchant.payee} className="merchant-row">
+                          <div>
+                            <strong>{merchant.payee}</strong>
+                            <div className="panel-note">{merchant.amount}</div>
+                          </div>
+                          <strong>{merchant.amount}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                </section>
+
+                <section className="transactions-and-chat">
+                  <article className="panel transactions-panel">
+                    <div className="panel-header">
+                      <div>
+                        <p className="section-label">Recent Transactions</p>
+                        <h3>Ask the AI about any row you see here</h3>
+                      </div>
+                    </div>
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Merchant</th>
+                            <th>Category</th>
+                            <th>Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedCard.transactions.map((tx) => (
+                            <tr
+                              key={`${tx.date}-${tx.merchant}-${tx.amount}`}
+                              className="transaction-row"
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`Ask AI about transaction ${tx.merchant} on ${tx.date} for ${currency(tx.amount)}`}
+                              onClick={() => handleTransactionAsk(tx)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  handleTransactionAsk(tx);
+                                }
+                              }}
+                            >
+                              <td>{tx.date}</td>
+                              <td>{tx.merchant}</td>
+                              <td>{tx.category}</td>
+                              <td className="amount-negative">
+                                <span>{currency(tx.amount)}</span>
+                                <span className="transaction-ask">Ask AI</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </article>
+
+                  <ChatPanel
+                    card={selectedCard}
+                    analysisWindow={selectedWindow}
+                    seedMessage={assistantSeed?.text || ""}
+                    seedMessageId={assistantSeed?.id || ""}
+                    onSeedConsumed={clearAssistantSeed}
+                  />
+                </section>
+              </>
+            )}
+          </div>
         ) : null}
 
-        <button
-          className={`assistant-launcher ${isAssistantView ? "assistant-launcher--active" : ""}`}
-          type="button"
-          onClick={isAssistantView ? handleDashboardOpen : handleAssistantOpen}
-          aria-label={isAssistantView ? "Return to dashboard" : "Open AI assistant"}
-          title={isAssistantView ? "Return to dashboard" : "Open AI assistant"}
-        >
-          <span className="assistant-launcher-ring" aria-hidden="true">
-            <span className="assistant-launcher-core">
-              {isAssistantView ? <LayoutDashboard size={22} /> : <Sparkles size={22} />}
+        {!isAssistantView ? (
+          <button
+            className="assistant-launcher"
+            type="button"
+            onClick={handleAssistantOpen}
+            aria-label="Open AI assistant"
+            title="Open AI assistant"
+          >
+            <span className="assistant-launcher-ring" aria-hidden="true">
+              <span className="assistant-launcher-core">
+                <Sparkles size={22} />
+              </span>
             </span>
-          </span>
-          <span className="assistant-launcher-label">
-            {isAssistantView ? "Dashboard" : "AI"}
-          </span>
-        </button>
+            <span className="assistant-launcher-label">AI</span>
+          </button>
+        ) : null}
       </main>
     </div>
   );

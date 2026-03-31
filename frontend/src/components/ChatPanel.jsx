@@ -4,10 +4,16 @@ import { Bot, ChevronRight, LoaderCircle, SendHorizontal, Sparkles, WandSparkles
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { fetchChatConversation, fetchChatConversations, sendChatMessage } from "../chat/api";
+import { deleteChatConversation, fetchChatConversation, fetchChatConversations, sendChatMessage } from "../chat/api";
 import { createWelcomeMessage } from "../chat/mockResponder";
 
-function ChatPanel({ card, seedMessage = "", seedMessageId = "", onSeedConsumed = () => {} }) {
+const CONTEXT_TABS = [
+  { id: "card", label: "Card" },
+  { id: "window", label: "Window" },
+  { id: "focus", label: "Focus" },
+];
+
+function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "", onSeedConsumed = () => {} }) {
   const [messages, setMessages] = useState(() => [createWelcomeMessage(card)]);
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -15,8 +21,10 @@ function ChatPanel({ card, seedMessage = "", seedMessageId = "", onSeedConsumed 
   const [errorMessage, setErrorMessage] = useState("");
   const [isThreadReady, setIsThreadReady] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [activeContextTab, setActiveContextTab] = useState("card");
   const [recentThreads, setRecentThreads] = useState([]);
   const [isLoadingThreads, setIsLoadingThreads] = useState(false);
+  const [historyRefreshToken, setHistoryRefreshToken] = useState(0);
   const feedRef = useRef(null);
   const conversationIdRef = useRef(null);
   const consumedSeedRef = useRef("");
@@ -24,17 +32,49 @@ function ChatPanel({ card, seedMessage = "", seedMessageId = "", onSeedConsumed 
 
   const chatContext = useMemo(
     () => ({
-      selected_tab: "AI Assistant",
+      selected_tab: activeContextTab,
       account_pid: card.context.accountPid,
       account_name: card.context.accountName || card.context.card,
       card_label: card.name,
-      start_date: card.context.windowStart,
-      end_date: card.context.windowEnd,
+      start_date: analysisWindow?.start || card.context.windowStart,
+      end_date: analysisWindow?.end || card.context.windowEnd,
       focus_category: card.context.focus,
       focus_payee: card.summary.topMerchant,
     }),
-    [card]
+    [activeContextTab, analysisWindow?.end, analysisWindow?.start, card]
   );
+
+  const activeContextDetails = useMemo(() => {
+    if (activeContextTab === "window") {
+      return {
+        title: analysisWindow?.label || card.context.dateRange,
+        description: "Adjust the calendar to change the analysis window for the dashboard and the assistant.",
+        prompts: [
+          `Summarize this window for ${card.name}`,
+          "Compare this window to the prior period",
+          "What changed most in this window?",
+        ],
+      };
+    }
+
+    if (activeContextTab === "focus") {
+      return {
+        title: `${card.summary.topCategory} · ${card.summary.topMerchant}`,
+        description: "Focus on the strongest spending signal or the merchant driving the current card activity.",
+        prompts: [
+          `Explain ${card.summary.topCategory} spend`,
+          `Why is ${card.summary.topMerchant} so prominent?`,
+          "Look for unusual or recurring charges",
+        ],
+      };
+    }
+
+    return {
+      title: card.name,
+      description: `Current balance ${card.summary.totalSpend} and cycle spend anchored to the selected card.`,
+      prompts: card.quickPrompts.slice(0, 3),
+    };
+  }, [activeContextTab, analysisWindow?.label, card]);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,6 +86,7 @@ function ChatPanel({ card, seedMessage = "", seedMessageId = "", onSeedConsumed 
       setErrorMessage("");
       setIsThreadReady(false);
       setHistoryOpen(false);
+      setActiveContextTab("card");
 
       const savedConversationId = window.localStorage.getItem(storageKey);
       if (!savedConversationId) {
@@ -118,7 +159,7 @@ function ChatPanel({ card, seedMessage = "", seedMessageId = "", onSeedConsumed 
     return () => {
       cancelled = true;
     };
-  }, [card.context.accountPid, conversationId]);
+  }, [card.context.accountPid, conversationId, historyRefreshToken]);
 
   useEffect(() => {
     conversationIdRef.current = conversationId;
@@ -137,6 +178,17 @@ function ChatPanel({ card, seedMessage = "", seedMessageId = "", onSeedConsumed 
   }, [messages, isSending]);
 
   async function handleSubmit(event) {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text || isSending) return;
+    await submitMessage(text);
+  }
+
+  async function handleComposerKeyDown(event) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+      return;
+    }
+
     event.preventDefault();
     const text = draft.trim();
     if (!text || isSending) return;
@@ -164,6 +216,21 @@ function ChatPanel({ card, seedMessage = "", seedMessageId = "", onSeedConsumed 
       setHistoryOpen(false);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to load conversation history");
+    }
+  }
+
+  async function handleDeleteConversation(threadId) {
+    try {
+      await deleteChatConversation(threadId);
+      if (threadId === conversationIdRef.current) {
+        window.localStorage.removeItem(storageKey);
+        setConversationId(null);
+        setMessages([createWelcomeMessage(card)]);
+        setDraft("");
+      }
+      setHistoryRefreshToken((current) => current + 1);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to delete conversation");
     }
   }
 
@@ -269,13 +336,25 @@ function ChatPanel({ card, seedMessage = "", seedMessageId = "", onSeedConsumed 
       </div>
 
       <div className="chat-context compact">
-        <span className="chat-context-chip">Card: {card.context.card}</span>
-        <span className="chat-context-chip">Window: {card.context.dateRange}</span>
-        <span className="chat-context-chip">Focus: {card.context.focus}</span>
+        {CONTEXT_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            className={`chat-context-chip chat-context-chip--button ${activeContextTab === tab.id ? "active" : ""}`}
+            type="button"
+            onClick={() => setActiveContextTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="chat-context-detail">
+        <strong>{activeContextDetails.title}</strong>
+        <span>{activeContextDetails.description}</span>
       </div>
 
       <div className="chat-slim-prompts">
-        {card.quickPrompts.slice(0, 3).map((prompt) => (
+        {activeContextDetails.prompts.slice(0, 3).map((prompt) => (
           <button key={prompt} className="suggestion-chip suggestion-chip--slim" type="button" onClick={() => handleQuickPrompt(prompt)}>
             <WandSparkles size={14} />
             {prompt}
@@ -332,6 +411,7 @@ function ChatPanel({ card, seedMessage = "", seedMessageId = "", onSeedConsumed 
           placeholder="Ask about this card or a specific transaction..."
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={handleComposerKeyDown}
         />
         <div className="chat-form-footer">
           <span className="panel-note">Responses stay tied to this card.</span>
@@ -350,18 +430,32 @@ function ChatPanel({ card, seedMessage = "", seedMessageId = "", onSeedConsumed 
               Close
             </button>
           </div>
-          <div className="chat-history-list">
+      <div className="chat-history-list">
             {isLoadingThreads ? (
               <p className="panel-note">Loading history...</p>
             ) : recentThreads.length ? (
               recentThreads.map((thread) => (
-                <button key={thread.conversation_id} className="chat-history-item" type="button" onClick={() => loadConversationThread(thread.conversation_id)}>
-                  <div className="chat-history-item-top">
-                    <strong>{thread.card_label || thread.account_name || "Conversation"}</strong>
-                    <span>{thread.message_count} msgs</span>
-                  </div>
-                  <p>{thread.preview || "No preview available"}</p>
-                </button>
+                <div key={thread.conversation_id} className="chat-history-item">
+                  <button
+                    className="chat-history-item-open"
+                    type="button"
+                    onClick={() => loadConversationThread(thread.conversation_id)}
+                  >
+                    <div className="chat-history-item-top">
+                      <strong>{thread.card_label || thread.account_name || "Conversation"}</strong>
+                      <span>{thread.message_count} msgs</span>
+                    </div>
+                    <p>{thread.preview || "No preview available"}</p>
+                  </button>
+                  <button
+                    className="chat-history-item-delete"
+                    type="button"
+                    onClick={() => handleDeleteConversation(thread.conversation_id)}
+                    aria-label={`Delete conversation ${thread.card_label || thread.account_name || thread.conversation_id}`}
+                  >
+                    Delete
+                  </button>
+                </div>
               ))
             ) : (
               <p className="panel-note">No saved conversations for this card yet.</p>

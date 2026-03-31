@@ -6,11 +6,11 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-DEFAULT_CONVERSATION_DB_PATH = "db.sqlite"
+DEFAULT_CONVERSATION_DB_PATH = "finance_chat.sqlite"
 
 
 def get_conversation_db_path(db_path: Optional[str] = None) -> str:
-    return db_path or os.getenv("ACTUAL_DB_PATH", DEFAULT_CONVERSATION_DB_PATH)
+    return db_path or os.getenv("FINANCE_CHAT_DB_PATH", DEFAULT_CONVERSATION_DB_PATH)
 
 
 def get_conversation_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
@@ -144,6 +144,20 @@ def append_message(
             """,
             (now, now, conversation_id),
         )
+
+
+def delete_conversation(conversation_id: str, *, db_path: Optional[str] = None) -> bool:
+    with get_conversation_connection(db_path) as conn:
+        deleted_messages = conn.execute(
+            "DELETE FROM chat_messages WHERE conversation_id = ?",
+            (conversation_id,),
+        ).rowcount
+        deleted_conversations = conn.execute(
+            "DELETE FROM chat_conversations WHERE conversation_id = ?",
+            (conversation_id,),
+        ).rowcount
+        conn.commit()
+    return bool(deleted_conversations or deleted_messages)
 
 
 def list_messages(conversation_id: str, *, db_path: Optional[str] = None) -> List[Dict[str, Any]]:

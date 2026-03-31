@@ -64,3 +64,14 @@ export async function fetchChatConversations(accountPid, limit = 8) {
   }
   return response.json();
 }
+
+export async function deleteChatConversation(conversationId) {
+  const response = await fetch(`${getBackendBaseUrl()}/api/chat/conversations/${conversationId}`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok && response.status !== 204) {
+    const detail = await response.text();
+    throw new Error(detail || `Request failed with status ${response.status}`);
+  }
+}

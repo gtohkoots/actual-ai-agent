@@ -136,7 +136,7 @@ def test_chat_endpoint_uses_chat_service(monkeypatch):
 
 def test_generate_chat_response_persists_conversation(monkeypatch, tmp_path):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setenv("ACTUAL_DB_PATH", str(tmp_path / "chat.sqlite"))
+    monkeypatch.setenv("FINANCE_CHAT_DB_PATH", str(tmp_path / "chat.sqlite"))
     _stub_retrieval_pack(monkeypatch)
 
     response = generate_chat_response(
@@ -162,7 +162,7 @@ def test_generate_chat_response_persists_conversation(monkeypatch, tmp_path):
 
 
 def test_chat_conversation_endpoint_returns_thread(monkeypatch, tmp_path):
-    monkeypatch.setenv("ACTUAL_DB_PATH", str(tmp_path / "chat.sqlite"))
+    monkeypatch.setenv("FINANCE_CHAT_DB_PATH", str(tmp_path / "chat.sqlite"))
     _stub_retrieval_pack(monkeypatch)
 
     generate_chat_response(
@@ -190,7 +190,7 @@ def test_chat_conversation_endpoint_returns_thread(monkeypatch, tmp_path):
 
 
 def test_chat_conversations_endpoint_lists_recent_threads(monkeypatch, tmp_path):
-    monkeypatch.setenv("ACTUAL_DB_PATH", str(tmp_path / "chat.sqlite"))
+    monkeypatch.setenv("FINANCE_CHAT_DB_PATH", str(tmp_path / "chat.sqlite"))
     _stub_retrieval_pack(monkeypatch)
 
     generate_chat_response(
@@ -229,3 +229,30 @@ def test_chat_conversations_endpoint_lists_recent_threads(monkeypatch, tmp_path)
     assert payload[0]["account_pid"] == "acct-789"
     assert payload[0]["message_count"] == 2
     assert payload[0]["preview"]
+
+
+def test_delete_chat_conversation_removes_thread(monkeypatch, tmp_path):
+    monkeypatch.setenv("FINANCE_CHAT_DB_PATH", str(tmp_path / "chat.sqlite"))
+    _stub_retrieval_pack(monkeypatch)
+
+    generate_chat_response(
+        ChatRequest(
+            message="Delete me",
+            conversation_id="conv-delete",
+            context=ChatContext(
+                card_label="Visa",
+                account_name="Visa",
+                account_pid="acct-del",
+                start_date="2026-03-16",
+                end_date="2026-03-22",
+            ),
+        )
+    )
+
+    client = TestClient(app)
+    response = client.delete("/api/chat/conversations/conv-delete")
+
+    assert response.status_code == 204
+
+    not_found = client.get("/api/chat/conversations/conv-delete")
+    assert not_found.status_code == 404
