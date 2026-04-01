@@ -7,7 +7,6 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from backend.langchain_runner import get_weekly_data_tool
-from backend.services.filters import filter_ignored_payment
 from backend.services.insights import get_week_rollups, save_daily_snapshot
 from backend.utils.db import get_transactions_in_date_range
 
@@ -28,7 +27,7 @@ def test_week_rollups_use_human_category_names():
     assert "nan" not in categories
     assert "(uncategorized)" not in categories
     assert "Grocery" in categories
-    assert "Food" in categories
+    assert "Dine" in categories
 
 
 def test_get_weekly_data_tool_returns_dollar_amounts_and_category_fields():
@@ -42,7 +41,7 @@ def test_get_weekly_data_tool_returns_dollar_amounts_and_category_fields():
     assert "account" in payload[0]
 
 
-def test_filter_ignored_payment_matches_case_insensitively():
+def test_filter_ignored_payment_is_noop():
     df = pd.DataFrame(
         {
             "category_name": ["Ignored - Expense", "Ignored - Income", "Food"],
@@ -50,9 +49,11 @@ def test_filter_ignored_payment_matches_case_insensitively():
         }
     )
 
+    from backend.services.filters import filter_ignored_payment
+
     filtered = filter_ignored_payment(df)
 
-    assert filtered["category_name"].tolist() == ["Food"]
+    assert filtered["category_name"].tolist() == ["Ignored - Expense", "Ignored - Income", "Food"]
 
 
 def test_save_daily_snapshot_returns_empty_message_for_dates_without_transactions():

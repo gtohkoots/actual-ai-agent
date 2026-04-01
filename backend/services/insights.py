@@ -5,11 +5,8 @@ from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
 
-import os
 import numpy as np
 import pandas as pd
-
-from backend.services.filters import filter_ignored_payment
 
 try:
     # Prefer your existing loader if present
@@ -45,10 +42,6 @@ def _ensure_df(df: Optional[pd.DataFrame], start_date: str, end_date: str, filte
         out["amount"] = (out["amount"].astype(float) / 100).round(2)
     else:
         out["amount"] = out["amount"].astype(float).round(2)
-
-    # Optionally ignore Amex Pay transactions
-    if filter_payment is True:
-        out = filter_ignored_payment(out)
 
     # Minimal expected columns
     for col in ["payee", "category"]:

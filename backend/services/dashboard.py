@@ -25,6 +25,7 @@ class DashboardAccountSummary(BaseModel):
     account_name: str
     balance_current: float
     cycle_spend: float
+    cycle_income: float
     delta_percent: float
     delta_text: str
     utilization_text: str
@@ -45,6 +46,7 @@ class DashboardOverview(BaseModel):
     month_label: str
     selected_window: str
     window: DashboardWindow
+    portfolio: Dict[str, Any] = Field(default_factory=dict)
     accounts: List[DashboardAccountSummary] = Field(default_factory=list)
 
 
@@ -52,10 +54,26 @@ def _today() -> date:
     return date.today()
 
 
-def _default_window() -> tuple[str, str]:
+def _dataset_window(db_path: Optional[str] = None) -> tuple[str, str]:
     today = _today()
-    start = today.replace(day=1)
-    return start.isoformat(), today.isoformat()
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT MIN(date) AS first_date
+            FROM transactions
+            """
+        ).fetchone()
+
+    first_date = row["first_date"] if row else None
+    if first_date is None:
+        return today.isoformat(), today.isoformat()
+
+    first_day = datetime.strptime(str(first_date), "%Y%m%d").date()
+    return first_day.isoformat(), today.isoformat()
+
+
+def _default_window() -> tuple[str, str]:
+    return _dataset_window()
 
 
 def _previous_window(start_date: str, end_date: str) -> tuple[str, str]:
@@ -132,6 +150,180 @@ def _top_transactions(df: pd.DataFrame, limit: int = 5) -> List[Dict[str, Any]]:
     ]
 
 
+def _daily_series(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    if df.empty:
+        return []
+    series = (
+        df.assign(
+            day=pd.to_datetime(df["date"]).dt.date,
+            income=df["amount"].where(df["amount"] > 0, 0.0),
+            expense=df["amount"].where(df["amount"] < 0, 0.0).abs(),
+        )
+        .groupby("day", as_index=False)[["income", "expense"]]
+        .sum()
+        .sort_values("day")
+    )
+    return [
+        {
+            "date": row["day"].isoformat(),
+            "income": round(float(row["income"]), 2),
+            "expense": round(float(row["expense"]), 2),
+            "net": round(float(row["income"] - row["expense"]), 2),
+        }
+        for _, row in series.iterrows()
+    ]
+
+
+def _top_categories_all_accounts(df: pd.DataFrame, limit: int = 5) -> List[Dict[str, Any]]:
+    if df.empty:
+        return []
+    expense_df = df[df["amount"] < 0]
+    if expense_df.empty:
+        return []
+    categories = (
+        expense_df.groupby("category", dropna=False)["amount"].sum().mul(-1.0).sort_values(ascending=False).head(limit)
+    )
+    return [
+        {"category": str(idx) if idx is not None else "(uncategorized)", "amount": round(float(val), 2)}
+        for idx, val in categories.items()
+    ]
+
+
+def _top_payees_all_accounts(df: pd.DataFrame, limit: int = 5) -> List[Dict[str, Any]]:
+    if df.empty:
+        return []
+    expense_df = df[df["amount"] < 0]
+    if expense_df.empty:
+        return []
+    payees = (
+        expense_df.groupby("payee", dropna=False)["amount"].sum().mul(-1.0).sort_values(ascending=False).head(limit)
+    )
+    return [
+        {"payee": str(idx) if idx is not None else "(unknown)", "amount": round(float(val), 2)}
+        for idx, val in payees.items()
+    ]
+
+
+def _category_mix(df: pd.DataFrame, limit: int = 5) -> List[Dict[str, Any]]:
+    categories = _top_categories_all_accounts(df, limit=limit)
+    total = sum(item["amount"] for item in categories) or 1.0
+    return [
+        {
+            "category": item["category"],
+            "amount": item["amount"],
+            "share": round((item["amount"] / total) * 100.0, 1),
+        }
+        for item in categories
+    ]
+
+
+def _top_movers(start_date: str, end_date: str, db_path: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
+    current_frame = get_transactions_in_date_range(
+        start_date,
+        end_date,
+        db_path=db_path,
+        join_names=True,
+        dollars=True,
+        debug=False,
+    )
+    prev_start, prev_end = _previous_window(start_date, end_date)
+    previous_frame = get_transactions_in_date_range(
+        prev_start,
+        prev_end,
+        db_path=db_path,
+        join_names=True,
+        dollars=True,
+        debug=False,
+    )
+    current = (
+        current_frame[current_frame["amount"] < 0]
+        .groupby("category", dropna=False)["amount"]
+        .sum()
+        .mul(-1.0)
+    )
+    previous = (
+        previous_frame[previous_frame["amount"] < 0]
+        .groupby("category", dropna=False)["amount"]
+        .sum()
+        .mul(-1.0)
+    )
+    categories = list(set(current.index) | set(previous.index))
+    movers: List[Dict[str, Any]] = []
+    for category in categories:
+        cur_value = float(current.get(category, 0.0))
+        prev_value = float(previous.get(category, 0.0))
+        movers.append(
+            {
+                "category": str(category) if category is not None else "(uncategorized)",
+                "current": round(cur_value, 2),
+                "previous": round(prev_value, 2),
+                "delta": round(cur_value - prev_value, 2),
+            }
+        )
+    movers.sort(key=lambda item: abs(item["delta"]), reverse=True)
+    return movers[:limit]
+
+
+def _daily_heatmap(df: pd.DataFrame, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+    if df.empty:
+        return []
+    spend_by_day = (
+        df.assign(day=pd.to_datetime(df["date"]).dt.date)
+        .groupby("day", as_index=False)["amount"]
+        .sum()
+    )
+    spend_map = {row["day"]: round(abs(float(row["amount"])), 2) for _, row in spend_by_day.iterrows()}
+    start = datetime.strptime(start_date, "%Y-%m-%d").date()
+    end = datetime.strptime(end_date, "%Y-%m-%d").date()
+    days: List[Dict[str, Any]] = []
+    current = start
+    week_index = 0
+    while current <= end:
+        if current.weekday() == 0 and current != start:
+            week_index += 1
+        days.append(
+            {
+                "date": current.isoformat(),
+                "weekday": current.weekday(),
+                "week": week_index,
+                "amount": spend_map.get(current, 0.0),
+            }
+        )
+        current += timedelta(days=1)
+    return days
+
+
+def _portfolio_overview(start_date: str, end_date: str, db_path: Optional[str] = None) -> Dict[str, Any]:
+    frame = get_transactions_in_date_range(
+        start_date,
+        end_date,
+        db_path=db_path,
+        join_names=True,
+        dollars=True,
+        debug=False,
+    )
+    rollups = get_week_rollups(start_date, end_date, df=frame)
+    current_income = float(rollups["summary"]["total_income"])
+    current_expense = float(rollups["summary"]["total_expense"])
+    net_cashflow = float(rollups["summary"]["net_cashflow"])
+    accounts = list_accounts(db_path=db_path)
+    total_balance = round(sum(float(account.get("balance_current") or 0.0) for account in accounts), 2)
+    return {
+        "summary": {
+            "totalBalance": _format_currency(total_balance),
+            "totalIncome": _format_currency(current_income),
+            "totalSpend": _format_currency(current_expense),
+            "netCashFlow": _format_currency(net_cashflow),
+        },
+        "series": _daily_series(frame),
+        "categoryMix": _category_mix(frame),
+        "topCategories": _top_categories_all_accounts(frame),
+        "topMerchants": _top_payees_all_accounts(frame),
+        "topMovers": _top_movers(start_date, end_date, db_path=db_path),
+        "dailyHeatmap": _daily_heatmap(frame, start_date, end_date),
+    }
+
+
 def _card_prompt(top_category: str, top_merchant: str, account_name: str) -> List[str]:
     return [
         f"Summarize why {account_name} is elevated this month",
@@ -180,6 +372,7 @@ def _build_summary_for_account(account: Dict[str, Any], start_date: str, end_dat
     utilization_text = f"{top_category} heavy" if not second_category else f"{top_category} and {second_category} heavy"
     summary = {
         "totalSpend": _format_currency(current_total),
+        "totalIncome": _format_currency(float(rollups["summary"]["total_income"])),
         "netCashFlow": _format_currency(float(rollups["summary"]["net_cashflow"])),
         "topCategory": top_category,
         "topMerchant": top_merchant,
@@ -191,6 +384,7 @@ def _build_summary_for_account(account: Dict[str, Any], start_date: str, end_dat
         account_name=account_name,
         balance_current=balance_current,
         cycle_spend=current_total,
+        cycle_income=float(rollups["summary"]["total_income"]),
         delta_percent=delta_percent,
         delta_text=delta_text,
         utilization_text=utilization_text,
@@ -225,9 +419,21 @@ def build_dashboard_overview(
         for account in accounts
     ]
     summaries.sort(key=lambda item: item.cycle_spend, reverse=True)
+    portfolio = _portfolio_overview(start_date, end_date, db_path=db_path)
+    portfolio["accountComparison"] = [
+        {
+            "accountPid": item.account_pid,
+            "accountName": item.account_name,
+            "spend": item.cycle_spend,
+            "income": item.cycle_income,
+            "balance": item.balance_current,
+        }
+        for item in summaries
+    ]
     return DashboardOverview(
         month_label=_month_label_for_window(start_date),
-        selected_window="Month to date" if _default_window() == (start_date, end_date) else f"{start_date} to {end_date}",
+        selected_window="All time" if _default_window() == (start_date, end_date) else f"{start_date} to {end_date}",
         window=DashboardWindow(start=start_date, end=end_date),
+        portfolio=portfolio,
         accounts=summaries,
     )

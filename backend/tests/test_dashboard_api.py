@@ -28,9 +28,24 @@ def test_dashboard_endpoint_returns_account_summaries():
     payload = response.json()
     assert "month_label" in payload
     assert "selected_window" in payload
+    assert "portfolio" in payload
     assert "accounts" in payload
     assert len(payload["accounts"]) >= 1
 
     account = payload["accounts"][0]
     assert {"account_pid", "account_name", "balance_current", "cycle_spend", "summary", "categories", "merchants", "transactions"} <= set(account.keys())
+    assert "totalIncome" in account["summary"]
     assert account["context"]["accountPid"] == account["account_pid"]
+    assert {"summary", "series", "categoryMix", "accountComparison", "topMovers", "dailyHeatmap", "topMerchants"} <= set(payload["portfolio"].keys())
+    assert "totalBalance" in payload["portfolio"]["summary"]
+
+
+def test_dashboard_default_window_uses_all_time_range():
+    client = TestClient(app)
+
+    response = client.get("/api/dashboard")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["selected_window"] == "All time"
+    assert payload["window"]["start"] <= payload["window"]["end"]
