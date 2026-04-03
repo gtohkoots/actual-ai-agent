@@ -45,12 +45,12 @@ button {
 }
 
 .app-shell {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
+  display: flex;
   min-height: 100vh;
 }
 
 .sidebar {
+  flex: 0 0 72px;
   width: 72px;
   position: relative;
   z-index: 14;
@@ -60,12 +60,14 @@ button {
   backdrop-filter: blur(16px);
   overflow: visible;
   transition:
+    flex-basis 360ms cubic-bezier(0.22, 1, 0.36, 1),
     width 340ms cubic-bezier(0.22, 1, 0.36, 1),
     padding 340ms cubic-bezier(0.22, 1, 0.36, 1);
   will-change: width;
 }
 
 .sidebar.is-expanded {
+  flex-basis: 320px;
   width: 320px;
   padding: 28px 22px;
 }
@@ -244,6 +246,7 @@ button {
 }
 
 .main-panel {
+  flex: 1 1 auto;
   padding: 24px;
   min-width: 0;
 }
@@ -654,15 +657,25 @@ button {
   display: grid;
   grid-template-columns: 1.05fr 0.95fr;
   gap: 12px;
-  align-items: center;
+  align-items: stretch;
 }
 
 .overview-spendmix-chart {
-  height: 250px;
+  height: 260px;
 }
 
-.overview-spendmix-bars {
-  height: 250px;
+.overview-spendmix-pie-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 260px;
+  padding-bottom: 0;
+  overflow: visible;
+}
+
+.overview-spendmix-pie-visual {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .overview-spendmix-legend {
@@ -679,7 +692,17 @@ button {
 .overview-spendmix-empty {
   display: grid;
   place-items: center;
-  min-height: 220px;
+  min-height: 100%;
+}
+
+.overview-spendmix-label {
+  margin: 0;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  line-height: 1;
 }
 
 .overview-analysis-panel {
@@ -1389,10 +1412,11 @@ textarea {
 
 @media (max-width: 1180px) {
   .app-shell {
-    grid-template-columns: 1fr;
+    display: block;
   }
 
   .sidebar {
+    flex: 0 0 auto;
     width: 100%;
     padding: 18px;
     border-right: none;
@@ -1400,6 +1424,7 @@ textarea {
   }
 
   .sidebar.is-expanded {
+    flex-basis: auto;
     width: 100%;
     padding: 18px;
   }

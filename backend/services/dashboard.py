@@ -217,6 +217,26 @@ def _category_mix(df: pd.DataFrame, limit: int = 5) -> List[Dict[str, Any]]:
     ]
 
 
+def _income_mix(df: pd.DataFrame, limit: int = 5) -> List[Dict[str, Any]]:
+    if df.empty:
+        return []
+    income_df = df[df["amount"] > 0]
+    if income_df.empty:
+        return []
+    sources = (
+        income_df.groupby("payee", dropna=False)["amount"].sum().sort_values(ascending=False).head(limit)
+    )
+    total = float(sources.sum()) or 1.0
+    return [
+        {
+            "source": str(idx) if idx is not None else "(unknown)",
+            "amount": round(float(val), 2),
+            "share": round((float(val) / total) * 100.0, 1),
+        }
+        for idx, val in sources.items()
+    ]
+
+
 def _top_movers(start_date: str, end_date: str, db_path: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
     current_frame = get_transactions_in_date_range(
         start_date,
@@ -317,6 +337,7 @@ def _portfolio_overview(start_date: str, end_date: str, db_path: Optional[str] =
         },
         "series": _daily_series(frame),
         "categoryMix": _category_mix(frame),
+        "incomeMix": _income_mix(frame),
         "topCategories": _top_categories_all_accounts(frame),
         "topMerchants": _top_payees_all_accounts(frame),
         "topMovers": _top_movers(start_date, end_date, db_path=db_path),

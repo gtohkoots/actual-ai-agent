@@ -4,16 +4,11 @@ import { DayPicker } from "react-day-picker";
 import { startOfMonth, subDays } from "date-fns";
 import "react-day-picker/style.css";
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
   Cell,
   Pie,
   PieChart,
   ResponsiveContainer,
   Tooltip,
-  XAxis,
-  YAxis,
 } from "recharts";
 
 import ChatPanel from "./components/ChatPanel";
@@ -105,15 +100,16 @@ function SimpleListTooltip({ active, payload }) {
   );
 }
 
-function renderPieCategoryLabel({ cx, cy, midAngle, outerRadius, category }) {
+function renderPieCategoryLabel({ cx, cy, midAngle, outerRadius, category, source, name }) {
   const radius = outerRadius + 22;
   const x = cx + radius * Math.cos((-midAngle * Math.PI) / 180);
   const y = cy + radius * Math.sin((-midAngle * Math.PI) / 180);
   const anchor = x > cx ? "start" : "end";
+  const label = category || source || name || "";
 
   return (
     <text x={x} y={y} fill="#4f483f" textAnchor={anchor} dominantBaseline="central" fontSize={12} fontWeight={700}>
-      {category}
+      {label}
     </text>
   );
 }
@@ -283,6 +279,7 @@ function App() {
   const isAssistantView = activeTab === "AI Assistant";
   const isBudgetingTab = activeTab === "Budgeting Goals" || activeTab === "Budgeting Plan";
   const spendPieColors = ["#1f5c4d", "#aa7d2d", "#a04b2f", "#5a3d18", "#1b2c55"];
+  const incomePieColors = ["#214d73", "#4d7ba3", "#7d5ba6", "#5a3d18", "#1f5c4d"];
   const stats = selectedCard
     ? [
         { label: "Current Balance", value: currency(selectedCard.balanceCurrent), note: selectedCard.deltaText },
@@ -381,13 +378,7 @@ function App() {
     const netCashFlow = typeof netCashRaw === "number" ? currency(netCashRaw) : (netCashRaw || currency(0));
     const topCategory = portfolio.topCategories?.[0]?.category || "n/a";
     const spendMix = (portfolio.categoryMix || []).filter((entry) => Number(entry?.amount || 0) > 0);
-    const spendBars = [...spendMix]
-      .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
-      .slice(0, 5)
-      .map((entry) => ({
-        category: entry.category,
-        amount: Number(entry.amount || 0),
-      }));
+    const incomeMix = (portfolio.incomeMix || []).filter((entry) => Number(entry?.amount || 0) > 0);
 
     return (
       <>
@@ -402,55 +393,73 @@ function App() {
           <article className="panel overview-spendmix-panel">
             <div className="panel-header">
               <div>
-                <p className="section-label">Spend Breakdown</p>
-                <h3>Where you spent in this timeframe</h3>
+                <p className="section-label">Cash Flow Breakdown</p>
+                <h3>Where spend and income are concentrated</h3>
               </div>
             </div>
-            {spendMix.length ? (
+            {spendMix.length || incomeMix.length ? (
               <>
                 <div className="overview-spendmix-visuals">
-                  <div className="overview-spendmix-chart">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart margin={{ top: 10, right: 70, bottom: 10, left: 70 }}>
-                        <Tooltip content={<SimpleListTooltip />} />
-                        <Pie
-                          data={spendMix}
-                          dataKey="amount"
-                          nameKey="category"
-                          innerRadius={52}
-                          outerRadius={98}
-                          paddingAngle={2}
-                          labelLine
-                          label={renderPieCategoryLabel}
-                        >
-                          {spendMix.map((entry, index) => (
-                            <Cell key={entry.category} fill={spendPieColors[index % spendPieColors.length]} />
-                          ))}
-                        </Pie>
-                      </PieChart>
-                    </ResponsiveContainer>
+                  <div className="overview-spendmix-pie-card">
+                    <span className="overview-spendmix-label">Spend sources</span>
+                    <div className="overview-spendmix-pie-visual">
+                      {spendMix.length ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart margin={{ top: 10, right: 70, bottom: 10, left: 70 }}>
+                            <Tooltip content={<SimpleListTooltip />} />
+                            <Pie
+                              data={spendMix}
+                              dataKey="amount"
+                              nameKey="category"
+                              innerRadius={42}
+                              outerRadius={78}
+                              paddingAngle={2}
+                              labelLine
+                              label={renderPieCategoryLabel}
+                            >
+                              {spendMix.map((entry, index) => (
+                                <Cell key={entry.category} fill={spendPieColors[index % spendPieColors.length]} />
+                              ))}
+                            </Pie>
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="overview-spendmix-empty">
+                          <p className="panel-note">No spending data for this timeframe yet.</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="overview-spendmix-bars">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={spendBars}
-                        layout="vertical"
-                        margin={{ top: 4, right: 10, left: 4, bottom: 4 }}
-                      >
-                        <CartesianGrid stroke="rgba(27, 26, 23, 0.07)" horizontal={false} />
-                        <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(value) => `$${value}`} />
-                        <YAxis
-                          type="category"
-                          dataKey="category"
-                          tickLine={false}
-                          axisLine={false}
-                          width={92}
-                        />
-                        <Tooltip content={<SimpleListTooltip />} />
-                        <Bar dataKey="amount" fill="#1f5c4d" radius={[0, 999, 999, 0]} barSize={14} />
-                      </BarChart>
-                    </ResponsiveContainer>
+                  <div className="overview-spendmix-pie-card">
+                    <span className="overview-spendmix-label">Income sources</span>
+                    <div className="overview-spendmix-pie-visual">
+                      {incomeMix.length ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart margin={{ top: 10, right: 70, bottom: 10, left: 70 }}>
+                            <Tooltip content={<SimpleListTooltip />} />
+                            <Pie
+                              data={incomeMix}
+                              dataKey="amount"
+                              nameKey="source"
+                              innerRadius={42}
+                              outerRadius={78}
+                              paddingAngle={2}
+                              labelLine
+                              label={renderPieCategoryLabel}
+                            >
+                              {incomeMix.map((entry, index) => (
+                                <Cell key={entry.source} fill={incomePieColors[index % incomePieColors.length]} />
+                              ))}
+                            </Pie>
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="overview-spendmix-empty">
+                          <p className="panel-note">No income data for this timeframe yet.</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </>
