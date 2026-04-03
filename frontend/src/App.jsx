@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Sparkles } from "lucide-react";
 import { DayPicker } from "react-day-picker";
 import { startOfMonth, subDays } from "date-fns";
 import "react-day-picker/style.css";
@@ -21,7 +21,7 @@ import {
 import ChatPanel from "./components/ChatPanel";
 import { fetchAccounts, fetchDashboardOverview } from "./api/dashboard";
 
-const navItems = ["Overview", "Cards"];
+const navItems = ["Overview", "Cards", "AI Assistant"];
 const WINDOW_PRESETS = [
   { value: "all_time", label: "All time" },
   { value: "month_to_date", label: "Month to date" },
@@ -183,6 +183,7 @@ function App() {
   const [dashboard, setDashboard] = useState(null);
   const [selectedCardId, setSelectedCardId] = useState(null);
   const [activeTab, setActiveTab] = useState("Overview");
+  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
   const [assistantSeed, setAssistantSeed] = useState(null);
   const [windowPreset, setWindowPreset] = useState("all_time");
   const [windowRange, setWindowRange] = useState(null);
@@ -339,6 +340,10 @@ function App() {
 
   function handleAssistantOpen() {
     setActiveTab("AI Assistant");
+  }
+
+  function toggleSidebar() {
+    setIsSidebarVisible((current) => !current);
   }
 
   function handlePresetSelect(preset) {
@@ -792,43 +797,54 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${!isSidebarVisible ? "app-shell--sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
-        <div className="brand-block">
-          <p className="eyebrow">Finance Agent</p>
-          <h1>Cards, spend, and AI guidance in one place.</h1>
-          <p className="sidebar-copy">
-            A dashboard-first workspace where the user explores card activity and asks grounded questions
-            without leaving the context of the data.
-          </p>
+        <button
+          className="sidebar-toggle"
+          type="button"
+          onClick={toggleSidebar}
+          aria-label={isSidebarVisible ? "Hide sidebar" : "Show sidebar"}
+          title={isSidebarVisible ? "Hide sidebar" : "Show sidebar"}
+        >
+          {isSidebarVisible ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+        </button>
+        <div className="sidebar-content">
+          <div className="brand-block">
+            <p className="eyebrow">Finance Agent</p>
+            <h1>Cards, spend, and AI guidance in one place.</h1>
+            <p className="sidebar-copy">
+              A dashboard-first workspace where the user explores card activity and asks grounded questions
+              without leaving the context of the data.
+            </p>
+          </div>
+
+          <nav className="nav-groups">
+            {navItems.map((item) => (
+              <button
+                key={item}
+                className={`nav-item ${item === activeTab ? "active" : ""}`}
+                type="button"
+                onClick={() => setActiveTab(item)}
+              >
+                {item}
+              </button>
+            ))}
+          </nav>
+
+          <section className="context-panel">
+            <p className="section-label">Active Context</p>
+            {selectedCard ? (
+              <div className="context-chips">
+                <span className="chip">Card: {selectedCard.context.card}</span>
+                <span className="chip">Window: {dashboard?.selected_window || selectedCard.context.dateRange}</span>
+                <span className="chip">Focus: {selectedCard.context.focus}</span>
+                <span className="chip">PID: {selectedCard.id.slice(0, 8)}...</span>
+              </div>
+            ) : (
+              <p className="sidebar-copy">Loading accounts from the backend...</p>
+            )}
+          </section>
         </div>
-
-        <nav className="nav-groups">
-          {navItems.map((item) => (
-            <button
-              key={item}
-              className={`nav-item ${item === activeTab ? "active" : ""}`}
-              type="button"
-              onClick={() => setActiveTab(item)}
-            >
-              {item}
-            </button>
-          ))}
-        </nav>
-
-        <section className="context-panel">
-          <p className="section-label">Active Context</p>
-          {selectedCard ? (
-            <div className="context-chips">
-              <span className="chip">Card: {selectedCard.context.card}</span>
-              <span className="chip">Window: {dashboard?.selected_window || selectedCard.context.dateRange}</span>
-              <span className="chip">Focus: {selectedCard.context.focus}</span>
-              <span className="chip">PID: {selectedCard.id.slice(0, 8)}...</span>
-            </div>
-          ) : (
-            <p className="sidebar-copy">Loading accounts from the backend...</p>
-          )}
-        </section>
       </aside>
 
       <main className="main-panel">
