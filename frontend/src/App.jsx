@@ -1,15 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PanelLeftClose, PanelLeftOpen, Sparkles } from "lucide-react";
+import { CreditCard, LayoutDashboard, MessageCircle, PiggyBank, TrendingUp } from "lucide-react";
 import { DayPicker } from "react-day-picker";
 import { startOfMonth, subDays } from "date-fns";
 import "react-day-picker/style.css";
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
-  Cell,
   CartesianGrid,
+  Cell,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -21,7 +19,12 @@ import {
 import ChatPanel from "./components/ChatPanel";
 import { fetchAccounts, fetchDashboardOverview } from "./api/dashboard";
 
-const navItems = ["Overview", "Cards", "AI Assistant"];
+const railNavItems = [
+  { label: "Overview", icon: LayoutDashboard, tab: "Overview" },
+  { label: "Card Details", icon: CreditCard, tab: "Card Details" },
+  { label: "Spending Analysis", icon: TrendingUp, tab: "Spending Analysis" },
+  { label: "Budgeting", icon: PiggyBank, tab: "Budgeting Goals" },
+];
 const WINDOW_PRESETS = [
   { value: "all_time", label: "All time" },
   { value: "month_to_date", label: "Month to date" },
@@ -88,32 +91,6 @@ function formatWindowLabel(range) {
   return `${toLocalDate(range.from)} to ${toLocalDate(range.to)}`;
 }
 
-function formatChartDay(value) {
-  if (!value) return "";
-  const date = new Date(`${value}T00:00:00`);
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-  }).format(date);
-}
-
-function PortfolioTrendTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null;
-
-  const income = payload.find((entry) => entry.dataKey === "income")?.value || 0;
-  const expense = payload.find((entry) => entry.dataKey === "expense")?.value || 0;
-  const net = payload.find((entry) => entry.dataKey === "net")?.value || 0;
-
-  return (
-    <div className="chart-tooltip">
-      <strong>{formatChartDay(label)}</strong>
-      <span>Income: {currency(income)}</span>
-      <span>Spend: {currency(expense)}</span>
-      <span>Net: {currency(net)}</span>
-    </div>
-  );
-}
-
 function SimpleListTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
 
@@ -125,6 +102,19 @@ function SimpleListTooltip({ active, payload }) {
         </span>
       ))}
     </div>
+  );
+}
+
+function renderPieCategoryLabel({ cx, cy, midAngle, outerRadius, category }) {
+  const radius = outerRadius + 22;
+  const x = cx + radius * Math.cos((-midAngle * Math.PI) / 180);
+  const y = cy + radius * Math.sin((-midAngle * Math.PI) / 180);
+  const anchor = x > cx ? "start" : "end";
+
+  return (
+    <text x={x} y={y} fill="#4f483f" textAnchor={anchor} dominantBaseline="central" fontSize={12} fontWeight={700}>
+      {category}
+    </text>
   );
 }
 
@@ -183,7 +173,6 @@ function App() {
   const [dashboard, setDashboard] = useState(null);
   const [selectedCardId, setSelectedCardId] = useState(null);
   const [activeTab, setActiveTab] = useState("Overview");
-  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
   const [assistantSeed, setAssistantSeed] = useState(null);
   const [windowPreset, setWindowPreset] = useState("all_time");
   const [windowRange, setWindowRange] = useState(null);
@@ -191,8 +180,10 @@ function App() {
   const [windowPickerOpen, setWindowPickerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false);
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [error, setError] = useState("");
   const hasLoadedDashboardRef = useRef(false);
+  const sidebarRevealTimerRef = useRef(null);
 
   const selectedWindow = useMemo(
     () => ({
@@ -290,31 +281,8 @@ function App() {
   }, [cards, selectedCardId]);
 
   const isAssistantView = activeTab === "AI Assistant";
-  const overviewChartColors = ["#1f5c4d", "#aa7d2d", "#a04b2f", "#5a3d18", "#1b2c55"];
-  const portfolioBalances = cards.map((card) => card.balanceCurrent);
-  const highestBalanceCard = cards.reduce(
-    (best, card) => (!best || card.balanceCurrent > best.balanceCurrent ? card : best),
-    null
-  );
-  const averageBalance = portfolioBalances.length
-    ? portfolioBalances.reduce((sum, value) => sum + value, 0) / portfolioBalances.length
-    : 0;
-  const overviewStats = dashboard
-    ? [
-        { label: "Portfolio Current Balance", value: portfolio.summary?.totalBalance || currency(0), note: "Live balances across all cards on file" },
-        { label: "Active Cards", value: String(cards.length).padStart(2, "0"), note: "Cards currently on file" },
-        {
-          label: "Highest Balance Card",
-          value: highestBalanceCard ? highestBalanceCard.name : "n/a",
-          note: highestBalanceCard ? currency(highestBalanceCard.balanceCurrent) : "No cards loaded",
-        },
-        {
-          label: "Average Card Balance",
-          value: currency(averageBalance),
-          note: "Average across live balances",
-        },
-      ]
-    : [];
+  const isBudgetingTab = activeTab === "Budgeting Goals" || activeTab === "Budgeting Plan";
+  const spendPieColors = ["#1f5c4d", "#aa7d2d", "#a04b2f", "#5a3d18", "#1b2c55"];
   const stats = selectedCard
     ? [
         { label: "Current Balance", value: currency(selectedCard.balanceCurrent), note: selectedCard.deltaText },
@@ -335,15 +303,11 @@ function App() {
 
   function handleCardSelect(cardId) {
     setSelectedCardId(cardId);
-    setActiveTab("Cards");
+    setActiveTab("Card Details");
   }
 
   function handleAssistantOpen() {
     setActiveTab("AI Assistant");
-  }
-
-  function toggleSidebar() {
-    setIsSidebarVisible((current) => !current);
   }
 
   function handlePresetSelect(preset) {
@@ -384,238 +348,135 @@ function App() {
     setAssistantSeed(null);
   }
 
+  function handleSidebarEnter() {
+    if (sidebarRevealTimerRef.current) {
+      clearTimeout(sidebarRevealTimerRef.current);
+    }
+    sidebarRevealTimerRef.current = setTimeout(() => {
+      setIsSidebarExpanded(true);
+    }, 150);
+  }
+
+  function handleSidebarLeave() {
+    if (sidebarRevealTimerRef.current) {
+      clearTimeout(sidebarRevealTimerRef.current);
+    }
+    setIsSidebarExpanded(false);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (sidebarRevealTimerRef.current) {
+        clearTimeout(sidebarRevealTimerRef.current);
+      }
+    };
+  }, []);
+
   function renderOverviewTab() {
-    const overviewHeatmap = portfolio.dailyHeatmap || [];
-    const heatmapMaxWeek = Math.max(...overviewHeatmap.map((day) => day.week), 0);
-    const heatmapMaxAmount = Math.max(...overviewHeatmap.map((day) => day.amount), 1);
+    const incomeRaw = portfolio.summary?.totalIncome;
+    const totalIncome = typeof incomeRaw === "number" ? currency(incomeRaw) : (incomeRaw || currency(0));
+    const totalSpendRaw = portfolio.summary?.totalSpend;
+    const netCashRaw = portfolio.summary?.netCashFlow;
+    const totalSpend = typeof totalSpendRaw === "number" ? currency(totalSpendRaw) : (totalSpendRaw || currency(0));
+    const netCashFlow = typeof netCashRaw === "number" ? currency(netCashRaw) : (netCashRaw || currency(0));
+    const topCategory = portfolio.topCategories?.[0]?.category || "n/a";
+    const spendMix = (portfolio.categoryMix || []).filter((entry) => Number(entry?.amount || 0) > 0);
+    const spendBars = [...spendMix]
+      .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
+      .slice(0, 5)
+      .map((entry) => ({
+        category: entry.category,
+        amount: Number(entry.amount || 0),
+      }));
 
     return (
       <>
-        <section className="stats-grid">
-          {overviewStats.map((stat) => (
-            <article key={stat.label} className="stat-card">
-              <p className="section-label">{stat.label}</p>
-              <h3>{stat.value}</h3>
-              <p>{stat.note}</p>
-            </article>
-          ))}
-        </section>
+        <section className="overview-focus-grid">
+          <article className="panel overview-income-panel">
+            <p className="overview-income-title">Money You Made</p>
+            <p className="section-label">Income in selected timeframe</p>
+            <h3 className="overview-income-value">{totalIncome}</h3>
+            <p className="panel-note">{selectedWindow.label}</p>
+          </article>
 
-        <section className="panel overview-analysis-panel">
-          <div className="panel-header">
-            <div>
-              <p className="section-label">Income + Spend Analysis</p>
-              <h3>Portfolio movement over time</h3>
-            </div>
-            <span className="panel-note">All cards in range</span>
-          </div>
-          <div className="overview-summary-row">
-            <div className="overview-summary-chip">
-              <span>Total income</span>
-              <strong>{portfolio.summary?.totalIncome || currency(0)}</strong>
-            </div>
-            <div className="overview-summary-chip">
-              <span>Total spend</span>
-              <strong>{portfolio.summary?.totalSpend || currency(0)}</strong>
-            </div>
-            <div className="overview-summary-chip">
-              <span>Net cash flow</span>
-              <strong>{portfolio.summary?.netCashFlow || currency(0)}</strong>
-            </div>
-          </div>
-          <div className="portfolio-chart-shell">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={(portfolio.series || []).slice(-14)} margin={{ top: 10, right: 16, left: -8, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="incomeGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#1f5c4d" stopOpacity={0.38} />
-                    <stop offset="95%" stopColor="#1f5c4d" stopOpacity={0.05} />
-                  </linearGradient>
-                  <linearGradient id="expenseGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#a04b2f" stopOpacity={0.32} />
-                    <stop offset="95%" stopColor="#a04b2f" stopOpacity={0.04} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="rgba(27, 26, 23, 0.08)" vertical={false} />
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={formatChartDay}
-                  tickLine={false}
-                  axisLine={false}
-                  minTickGap={16}
-                />
-                <YAxis
-                  tickFormatter={(value) => `$${value.toFixed(0)}`}
-                  tickLine={false}
-                  axisLine={false}
-                  width={46}
-                />
-                <Tooltip content={<PortfolioTrendTooltip />} />
-                <Area
-                  type="monotone"
-                  dataKey="income"
-                  stroke="#1f5c4d"
-                  fill="url(#incomeGradient)"
-                  strokeWidth={2.2}
-                  dot={false}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="expense"
-                  stroke="#a04b2f"
-                  fill="url(#expenseGradient)"
-                  strokeWidth={2.2}
-                  dot={false}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="net"
-                  stroke="#aa7d2d"
-                  fill="none"
-                  strokeWidth={2}
-                  dot={false}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="overview-analysis-footer">
-            <div className="overview-summary-row overview-summary-row--compact">
-              <div className="overview-summary-chip">
-                <span>Selected Window</span>
-                <strong>{selectedWindow.label}</strong>
-              </div>
-              <div className="overview-summary-chip">
-                <span>Highest Category</span>
-                <strong>{portfolio.topCategories?.[0]?.category || "n/a"}</strong>
-              </div>
-              <div className="overview-summary-chip">
-                <span>Peak Spend Day</span>
-                <strong>
-                  {portfolio.dailyHeatmap?.length
-                    ? portfolio.dailyHeatmap.reduce((peak, day) => (day.amount > peak.amount ? day : peak), portfolio.dailyHeatmap[0]).date
-                    : "n/a"}
-                </strong>
-              </div>
-            </div>
-
-            <div className="overview-analysis-subgrid">
-              <div className="overview-analysis-subcard">
-                <div className="panel-header panel-header--compact">
-                  <div>
-                    <p className="section-label">Portfolio Spend Mix</p>
-                    <h4>Where the portfolio spend is concentrated</h4>
-                  </div>
-                  <span className="panel-note">Selected window</span>
-                </div>
-                <div className="overview-donut-shell overview-donut-shell--compact">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Tooltip content={<SimpleListTooltip />} />
-                      <Pie
-                        data={portfolio.categoryMix || []}
-                        dataKey="amount"
-                        nameKey="category"
-                        innerRadius={52}
-                        outerRadius={84}
-                        paddingAngle={3}
-                      >
-                        {(portfolio.categoryMix || []).map((entry, index) => (
-                          <Cell key={entry.category} fill={overviewChartColors[index % overviewChartColors.length]} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              <div className="overview-analysis-subcard">
-                <div className="panel-header panel-header--compact">
-                  <div>
-                    <p className="section-label">Daily Heatmap</p>
-                    <h4>Spend intensity by day</h4>
-                  </div>
-                  <span className="panel-note">Optional detail</span>
-                </div>
-                <div
-                  className="heatmap-grid"
-                  style={{ gridTemplateColumns: `repeat(${heatmapMaxWeek + 1}, minmax(0, 1fr))` }}
-                >
-                  {overviewHeatmap.map((day) => {
-                    const intensity = day.amount / heatmapMaxAmount;
-                    return (
-                      <div
-                        key={day.date}
-                        className="heatmap-cell"
-                        style={{
-                          opacity: 0.2 + intensity * 0.8,
-                          backgroundColor: "#1f5c4d",
-                          gridColumn: day.week + 1,
-                          gridRow: day.weekday + 1,
-                        }}
-                        title={`${day.date} · ${currency(day.amount)}`}
-                      >
-                        <span>{new Date(`${day.date}T00:00:00`).getDate()}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-          </div>
-        </section>
-
-        <section className="overview-grid">
-          <article className="panel overview-comparison-panel">
+          <article className="panel overview-spendmix-panel">
             <div className="panel-header">
               <div>
-                <p className="section-label">Comparison Views</p>
-                <h3>Cards and category shifts in one compact row</h3>
+                <p className="section-label">Spend Breakdown</p>
+                <h3>Where you spent in this timeframe</h3>
               </div>
-              <span className="panel-note">Vertical bars</span>
             </div>
-            <div className="overview-comparison-grid">
-              <div className="overview-comparison-card">
-                <div className="panel-header panel-header--compact">
-                  <div>
-                    <p className="section-label">Card Comparison</p>
-                    <h4>Spend, income, balance</h4>
+            {spendMix.length ? (
+              <>
+                <div className="overview-spendmix-visuals">
+                  <div className="overview-spendmix-chart">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart margin={{ top: 10, right: 70, bottom: 10, left: 70 }}>
+                        <Tooltip content={<SimpleListTooltip />} />
+                        <Pie
+                          data={spendMix}
+                          dataKey="amount"
+                          nameKey="category"
+                          innerRadius={52}
+                          outerRadius={98}
+                          paddingAngle={2}
+                          labelLine
+                          label={renderPieCategoryLabel}
+                        >
+                          {spendMix.map((entry, index) => (
+                            <Cell key={entry.category} fill={spendPieColors[index % spendPieColors.length]} />
+                          ))}
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
                   </div>
-                </div>
-                <div className="overview-chart-shell overview-chart-shell--compact">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={portfolio.accountComparison || []} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                      <CartesianGrid stroke="rgba(27, 26, 23, 0.08)" horizontal={false} />
-                      <XAxis type="number" tickLine={false} axisLine={false} />
-                      <YAxis type="category" dataKey="accountName" tickLine={false} axisLine={false} width={98} />
-                      <Tooltip content={<SimpleListTooltip />} />
-                      <Bar dataKey="spend" fill="#a04b2f" radius={[0, 999, 999, 0]} barSize={12} />
-                      <Bar dataKey="income" fill="#1f5c4d" radius={[0, 999, 999, 0]} barSize={12} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
 
-              <div className="overview-comparison-card">
-                <div className="panel-header panel-header--compact">
-                  <div>
-                    <p className="section-label">Top Movers</p>
-                    <h4>Biggest category shifts</h4>
+                  <div className="overview-spendmix-bars">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={spendBars}
+                        layout="vertical"
+                        margin={{ top: 4, right: 10, left: 4, bottom: 4 }}
+                      >
+                        <CartesianGrid stroke="rgba(27, 26, 23, 0.07)" horizontal={false} />
+                        <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(value) => `$${value}`} />
+                        <YAxis
+                          type="category"
+                          dataKey="category"
+                          tickLine={false}
+                          axisLine={false}
+                          width={92}
+                        />
+                        <Tooltip content={<SimpleListTooltip />} />
+                        <Bar dataKey="amount" fill="#1f5c4d" radius={[0, 999, 999, 0]} barSize={14} />
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
-                <div className="overview-chart-shell overview-chart-shell--compact">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={(portfolio.topMovers || []).slice(0, 5)} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                      <CartesianGrid stroke="rgba(27, 26, 23, 0.08)" horizontal={false} />
-                      <XAxis type="number" tickLine={false} axisLine={false} />
-                      <YAxis type="category" dataKey="category" tickLine={false} axisLine={false} width={98} />
-                      <Tooltip content={<SimpleListTooltip />} />
-                      <Bar dataKey="delta" fill="#aa7d2d" radius={[0, 999, 999, 0]} barSize={12} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+              </>
+            ) : (
+              <div className="overview-spendmix-empty">
+                <p className="panel-note">No spending data for this timeframe yet.</p>
               </div>
-            </div>
+            )}
+          </article>
+        </section>
+
+        <section className="overview-secondary-grid">
+          <article className="stat-card">
+            <p className="section-label">Total Spend</p>
+            <h3>{totalSpend}</h3>
+            <p>Total amount spent in this timeframe.</p>
+          </article>
+          <article className="stat-card">
+            <p className="section-label">Net Cash Flow</p>
+            <h3>{netCashFlow}</h3>
+            <p>Income minus spend for this window.</p>
+          </article>
+          <article className="stat-card">
+            <p className="section-label">Top Category</p>
+            <h3>{topCategory}</h3>
+            <p>The largest spending category selected period.</p>
           </article>
         </section>
       </>
@@ -796,65 +657,222 @@ function App() {
     );
   }
 
+  function renderSpendingAnalysisTab() {
+    const topCategory = selectedCard?.summary?.topCategory || "n/a";
+    const topMerchant = selectedCard?.summary?.topMerchant || "n/a";
+    const topPortfolioCategory = portfolio.topCategories?.[0];
+
+    return (
+      <>
+        <section className="stats-grid">
+          <article className="stat-card">
+            <p className="section-label">Behavior Signal</p>
+            <h3>{topCategory}</h3>
+            <p>Top category driving spend on the selected card.</p>
+          </article>
+          <article className="stat-card">
+            <p className="section-label">Top Merchant</p>
+            <h3>{topMerchant}</h3>
+            <p>Most frequent merchant influence in this window.</p>
+          </article>
+          <article className="stat-card">
+            <p className="section-label">Portfolio Pattern</p>
+            <h3>{topPortfolioCategory?.category || "n/a"}</h3>
+            <p>Strongest spend concentration across all cards.</p>
+          </article>
+          <article className="stat-card">
+            <p className="section-label">Analysis Window</p>
+            <h3>{selectedWindow.label}</h3>
+            <p>Current time frame used for behavior analysis.</p>
+          </article>
+        </section>
+
+        <section className="dashboard-grid">
+          <article className="panel">
+            <div className="panel-header">
+              <div>
+                <p className="section-label">Category Drivers</p>
+                <h3>Where spending behavior concentrates</h3>
+              </div>
+              <span className="panel-note">Selected card</span>
+            </div>
+            <div className="category-bars">
+              {(selectedCard?.categories || []).slice(0, 6).map((entry) => (
+                <div key={entry.category} className="category-row">
+                  <div className="category-meta">
+                    <span>{entry.category}</span>
+                    <strong>{currency(entry.amount)}</strong>
+                  </div>
+                  <div className="category-track">
+                    <div className="category-fill" style={{ width: `${Math.max(8, entry.share_pct || 0)}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </article>
+
+          <article className="panel">
+            <div className="panel-header">
+              <div>
+                <p className="section-label">Behavior Notes</p>
+                <h3>What this period suggests</h3>
+              </div>
+            </div>
+            <div className="merchant-list">
+              <div className="merchant-row">
+                <span>Concentration risk</span>
+                <strong>{topCategory} heavy</strong>
+              </div>
+              <div className="merchant-row">
+                <span>Largest merchant factor</span>
+                <strong>{topMerchant}</strong>
+              </div>
+              <div className="merchant-row">
+                <span>Suggested next question</span>
+                <strong>Why did this pattern shift vs previous window?</strong>
+              </div>
+            </div>
+          </article>
+        </section>
+      </>
+    );
+  }
+
+  function renderBudgetingTab() {
+    const isGoalsView = activeTab === "Budgeting Goals";
+    return (
+      <>
+        <section className="stats-grid">
+          <article className="stat-card">
+            <p className="section-label">Mode</p>
+            <h3>{isGoalsView ? "Goals" : "Plan"}</h3>
+            <p>{isGoalsView ? "Define saving targets and timelines." : "Map monthly actions and checkpoints."}</p>
+          </article>
+          <article className="stat-card">
+            <p className="section-label">Window</p>
+            <h3>{selectedWindow.label}</h3>
+            <p>Reference period used for budgeting context.</p>
+          </article>
+          <article className="stat-card">
+            <p className="section-label">Starting Point</p>
+            <h3>{currency(portfolio.summary?.totalBalance || 0)}</h3>
+            <p>Portfolio balance available for planning decisions.</p>
+          </article>
+          <article className="stat-card">
+            <p className="section-label">Next Step</p>
+            <h3>{isGoalsView ? "Set targets" : "Assign monthly budgets"}</h3>
+            <p>{isGoalsView ? "Pick short and long-term goal amounts." : "Distribute targets by category and month."}</p>
+          </article>
+        </section>
+
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="section-label">Budgeting Workspace</p>
+              <h3>{isGoalsView ? "Goal definition" : "Execution plan"}</h3>
+            </div>
+          </div>
+          <p className="panel-note">
+            {isGoalsView
+              ? "Use this section to set short-term goals (travel, emergency fund) and long-term goals (car, home, family)."
+              : "Use this section to break each goal into monthly contributions, spending limits, and timeline checkpoints."}
+          </p>
+        </section>
+      </>
+    );
+  }
+
   return (
-    <div className={`app-shell ${!isSidebarVisible ? "app-shell--sidebar-collapsed" : ""}`}>
-      <aside className="sidebar">
-        <button
-          className="sidebar-toggle"
-          type="button"
-          onClick={toggleSidebar}
-          aria-label={isSidebarVisible ? "Hide sidebar" : "Show sidebar"}
-          title={isSidebarVisible ? "Hide sidebar" : "Show sidebar"}
-        >
-          {isSidebarVisible ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
-        </button>
+    <div className="app-shell">
+      <aside
+        className={`sidebar ${isSidebarExpanded ? "is-expanded" : ""}`}
+        onMouseEnter={handleSidebarEnter}
+        onMouseLeave={handleSidebarLeave}
+        onFocusCapture={() => setIsSidebarExpanded(true)}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            setIsSidebarExpanded(false);
+          }
+        }}
+      >
+        <div className="sidebar-rail" aria-label="Quick navigation">
+          {railNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = item.tab === "Budgeting Goals" ? isBudgetingTab : activeTab === item.tab;
+            return (
+              <button
+                key={item.label}
+                className={`sidebar-rail-button ${isActive ? "active" : ""}`}
+                type="button"
+                onClick={() => setActiveTab(item.tab)}
+                aria-label={item.label}
+                title={item.label}
+              >
+                <Icon size={15} />
+              </button>
+            );
+          })}
+        </div>
         <div className="sidebar-content">
           <div className="brand-block">
-            <p className="eyebrow">Finance Agent</p>
-            <h1>Cards, spend, and AI guidance in one place.</h1>
-            <p className="sidebar-copy">
-              A dashboard-first workspace where the user explores card activity and asks grounded questions
-              without leaving the context of the data.
-            </p>
+            <p className="eyebrow">Personal Finance Copilot</p>
           </div>
 
           <nav className="nav-groups">
-            {navItems.map((item) => (
+            <button
+              className={`nav-item ${activeTab === "Overview" ? "active" : ""}`}
+              type="button"
+              onClick={() => setActiveTab("Overview")}
+            >
+              Overview
+            </button>
+            <button
+              className={`nav-item ${activeTab === "Card Details" ? "active" : ""}`}
+              type="button"
+              onClick={() => setActiveTab("Card Details")}
+            >
+              Card Details
+            </button>
+            <button
+              className={`nav-item ${activeTab === "Spending Analysis" ? "active" : ""}`}
+              type="button"
+              onClick={() => setActiveTab("Spending Analysis")}
+            >
+              Spending Analysis
+            </button>
+            <div className="nav-section">
               <button
-                key={item}
-                className={`nav-item ${item === activeTab ? "active" : ""}`}
+                className={`nav-item ${isBudgetingTab ? "active" : ""}`}
                 type="button"
-                onClick={() => setActiveTab(item)}
+                onClick={() => setActiveTab("Budgeting Goals")}
               >
-                {item}
+                Budgeting
               </button>
-            ))}
-          </nav>
-
-          <section className="context-panel">
-            <p className="section-label">Active Context</p>
-            {selectedCard ? (
-              <div className="context-chips">
-                <span className="chip">Card: {selectedCard.context.card}</span>
-                <span className="chip">Window: {dashboard?.selected_window || selectedCard.context.dateRange}</span>
-                <span className="chip">Focus: {selectedCard.context.focus}</span>
-                <span className="chip">PID: {selectedCard.id.slice(0, 8)}...</span>
+              <div className="nav-subgroups">
+                <button
+                  className={`nav-sub-item ${activeTab === "Budgeting Goals" ? "active" : ""}`}
+                  type="button"
+                  onClick={() => setActiveTab("Budgeting Goals")}
+                >
+                  Goal
+                </button>
+                <button
+                  className={`nav-sub-item ${activeTab === "Budgeting Plan" ? "active" : ""}`}
+                  type="button"
+                  onClick={() => setActiveTab("Budgeting Plan")}
+                >
+                  Plan
+                </button>
               </div>
-            ) : (
-              <p className="sidebar-copy">Loading accounts from the backend...</p>
-            )}
-          </section>
+            </div>
+          </nav>
         </div>
       </aside>
 
       <main className="main-panel">
         <header className="hero">
           <div>
-            <p className="eyebrow">{dashboard?.month_label || "Loading month..."}</p>
-            <h2>Card spending cockpit</h2>
-            <p className="hero-copy">
-              Switch cards, inspect category drift, and carry that context directly into the AI conversation.
-            </p>
+            <h2>Financial Snapshot</h2>
           </div>
           <div className="hero-actions">
             <div className="window-picker">
@@ -897,9 +915,6 @@ function App() {
                 </div>
               ) : null}
             </div>
-            <button className="primary-button" type="button">
-              Generate weekly insight
-            </button>
           </div>
         </header>
 
@@ -925,10 +940,13 @@ function App() {
                   onSeedConsumed={clearAssistantSeed}
                 />
               </section>
-            ) : activeTab === "Overview" ? (
-              renderOverviewTab()
             ) : (
-              renderCardsTab()
+              <>
+                {activeTab === "Overview" ? renderOverviewTab() : null}
+                {activeTab === "Card Details" ? renderCardsTab() : null}
+                {activeTab === "Spending Analysis" ? renderSpendingAnalysisTab() : null}
+                {isBudgetingTab ? renderBudgetingTab() : null}
+              </>
             )}
           </div>
         ) : null}
@@ -938,15 +956,11 @@ function App() {
             className="assistant-launcher"
             type="button"
             onClick={handleAssistantOpen}
-            aria-label="Open AI assistant"
-            title="Open AI assistant"
+            aria-label="Open assistant"
+            title="Open assistant"
           >
-            <span className="assistant-launcher-ring" aria-hidden="true">
-              <span className="assistant-launcher-core">
-                <Sparkles size={22} />
-              </span>
-            </span>
-            <span className="assistant-launcher-label">AI</span>
+            <MessageCircle className="assistant-launcher-icon" size={16} aria-hidden="true" />
+            <span className="assistant-launcher-label">Assistant</span>
           </button>
         ) : null}
       </main>
