@@ -36,7 +36,7 @@ def test_dashboard_endpoint_returns_account_summaries():
     assert {"account_pid", "account_name", "balance_current", "cycle_spend", "summary", "categories", "merchants", "transactions"} <= set(account.keys())
     assert "totalIncome" in account["summary"]
     assert account["context"]["accountPid"] == account["account_pid"]
-    assert {"summary", "series", "categoryMix", "accountComparison", "topMovers", "dailyHeatmap", "topMerchants"} <= set(payload["portfolio"].keys())
+    assert {"summary", "series", "categoryMix", "incomeMix", "accountComparison", "topMovers", "dailyHeatmap", "topMerchants"} <= set(payload["portfolio"].keys())
     assert "totalBalance" in payload["portfolio"]["summary"]
 
 

@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 import numpy as np
 import pandas as pd
 
+from backend.services.filters import filter_internal_transfer_rows
+
 try:
     # Prefer your existing loader if present
     from backend.utils.db import get_transactions_in_date_range
@@ -47,6 +49,10 @@ def _ensure_df(df: Optional[pd.DataFrame], start_date: str, end_date: str, filte
     for col in ["payee", "category"]:
         if col not in out.columns:
             out[col] = None
+
+    if filter_payment:
+        out = filter_internal_transfer_rows(out)
+
     return out.sort_values("date").reset_index(drop=True)
 
 

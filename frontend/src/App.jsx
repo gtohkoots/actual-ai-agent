@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CreditCard, LayoutDashboard, MessageCircle, PiggyBank, TrendingUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, CreditCard, LayoutDashboard, MessageCircle, PiggyBank, TrendingUp } from "lucide-react";
 import { DayPicker } from "react-day-picker";
 import { startOfMonth, subDays } from "date-fns";
 import "react-day-picker/style.css";
@@ -179,7 +179,6 @@ function App() {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [error, setError] = useState("");
   const hasLoadedDashboardRef = useRef(false);
-  const sidebarRevealTimerRef = useRef(null);
 
   const selectedWindow = useMemo(
     () => ({
@@ -345,30 +344,6 @@ function App() {
     setAssistantSeed(null);
   }
 
-  function handleSidebarEnter() {
-    if (sidebarRevealTimerRef.current) {
-      clearTimeout(sidebarRevealTimerRef.current);
-    }
-    sidebarRevealTimerRef.current = setTimeout(() => {
-      setIsSidebarExpanded(true);
-    }, 150);
-  }
-
-  function handleSidebarLeave() {
-    if (sidebarRevealTimerRef.current) {
-      clearTimeout(sidebarRevealTimerRef.current);
-    }
-    setIsSidebarExpanded(false);
-  }
-
-  useEffect(() => {
-    return () => {
-      if (sidebarRevealTimerRef.current) {
-        clearTimeout(sidebarRevealTimerRef.current);
-      }
-    };
-  }, []);
-
   function renderOverviewTab() {
     const incomeRaw = portfolio.summary?.totalIncome;
     const totalIncome = typeof incomeRaw === "number" ? currency(incomeRaw) : (incomeRaw || currency(0));
@@ -432,7 +407,7 @@ function App() {
                   </div>
 
                   <div className="overview-spendmix-pie-card">
-                    <span className="overview-spendmix-label">Income sources</span>
+                    <span className="overview-spendmix-label">Income categories</span>
                     <div className="overview-spendmix-pie-visual">
                       {incomeMix.length ? (
                         <ResponsiveContainer width="100%" height="100%">
@@ -793,36 +768,39 @@ function App() {
 
   return (
     <div className="app-shell">
-      <aside
-        className={`sidebar ${isSidebarExpanded ? "is-expanded" : ""}`}
-        onMouseEnter={handleSidebarEnter}
-        onMouseLeave={handleSidebarLeave}
-        onFocusCapture={() => setIsSidebarExpanded(true)}
-        onBlurCapture={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget)) {
-            setIsSidebarExpanded(false);
-          }
-        }}
-      >
-        <div className="sidebar-rail" aria-label="Quick navigation">
-          {railNavItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = item.tab === "Budgeting Goals" ? isBudgetingTab : activeTab === item.tab;
-            return (
-              <button
-                key={item.label}
-                className={`sidebar-rail-button ${isActive ? "active" : ""}`}
-                type="button"
-                onClick={() => setActiveTab(item.tab)}
-                aria-label={item.label}
-                title={item.label}
-              >
-                <Icon size={15} />
-              </button>
-            );
-          })}
+      <aside className={`sidebar ${isSidebarExpanded ? "is-expanded" : ""}`}>
+        <div className="sidebar-rail-stack">
+          <button
+            className="sidebar-toggle-button"
+            type="button"
+            onClick={() => setIsSidebarExpanded((current) => !current)}
+            aria-expanded={isSidebarExpanded}
+            aria-controls="sidebar-navigation"
+            title={isSidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
+          >
+            {isSidebarExpanded ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+            <span className="sr-only">{isSidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}</span>
+          </button>
+          <div className="sidebar-rail" aria-label="Quick navigation">
+            {railNavItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = item.tab === "Budgeting Goals" ? isBudgetingTab : activeTab === item.tab;
+              return (
+                <button
+                  key={item.label}
+                  className={`sidebar-rail-button ${isActive ? "active" : ""}`}
+                  type="button"
+                  onClick={() => setActiveTab(item.tab)}
+                  aria-label={item.label}
+                  title={item.label}
+                >
+                  <Icon size={15} />
+                </button>
+              );
+            })}
+          </div>
         </div>
-        <div className="sidebar-content">
+        <div className="sidebar-content" id="sidebar-navigation">
           <div className="brand-block">
             <p className="eyebrow">Personal Finance Copilot</p>
           </div>

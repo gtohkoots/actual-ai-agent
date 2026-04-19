@@ -8,6 +8,7 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 from backend.services.insights import get_week_rollups
+from backend.services.filters import filter_internal_transfer_rows
 from backend.utils.db import get_connection, get_transactions_in_date_range
 
 
@@ -224,12 +225,12 @@ def _income_mix(df: pd.DataFrame, limit: int = 5) -> List[Dict[str, Any]]:
     if income_df.empty:
         return []
     sources = (
-        income_df.groupby("payee", dropna=False)["amount"].sum().sort_values(ascending=False).head(limit)
+        income_df.groupby("category", dropna=False)["amount"].sum().sort_values(ascending=False).head(limit)
     )
     total = float(sources.sum()) or 1.0
     return [
         {
-            "source": str(idx) if idx is not None else "(unknown)",
+            "source": str(idx) if idx is not None else "(uncategorized)",
             "amount": round(float(val), 2),
             "share": round((float(val) / total) * 100.0, 1),
         }
@@ -246,6 +247,7 @@ def _top_movers(start_date: str, end_date: str, db_path: Optional[str] = None, l
         dollars=True,
         debug=False,
     )
+    current_frame = filter_internal_transfer_rows(current_frame)
     prev_start, prev_end = _previous_window(start_date, end_date)
     previous_frame = get_transactions_in_date_range(
         prev_start,
@@ -255,6 +257,7 @@ def _top_movers(start_date: str, end_date: str, db_path: Optional[str] = None, l
         dollars=True,
         debug=False,
     )
+    previous_frame = filter_internal_transfer_rows(previous_frame)
     current = (
         current_frame[current_frame["amount"] < 0]
         .groupby("category", dropna=False)["amount"]
@@ -322,6 +325,7 @@ def _portfolio_overview(start_date: str, end_date: str, db_path: Optional[str] =
         dollars=True,
         debug=False,
     )
+    analytics_frame = filter_internal_transfer_rows(frame)
     rollups = get_week_rollups(start_date, end_date, df=frame)
     current_income = float(rollups["summary"]["total_income"])
     current_expense = float(rollups["summary"]["total_expense"])
@@ -335,13 +339,13 @@ def _portfolio_overview(start_date: str, end_date: str, db_path: Optional[str] =
             "totalSpend": _format_currency(current_expense),
             "netCashFlow": _format_currency(net_cashflow),
         },
-        "series": _daily_series(frame),
-        "categoryMix": _category_mix(frame),
-        "incomeMix": _income_mix(frame),
-        "topCategories": _top_categories_all_accounts(frame),
-        "topMerchants": _top_payees_all_accounts(frame),
+        "series": _daily_series(analytics_frame),
+        "categoryMix": _category_mix(analytics_frame),
+        "incomeMix": _income_mix(analytics_frame),
+        "topCategories": _top_categories_all_accounts(analytics_frame),
+        "topMerchants": _top_payees_all_accounts(analytics_frame),
         "topMovers": _top_movers(start_date, end_date, db_path=db_path),
-        "dailyHeatmap": _daily_heatmap(frame, start_date, end_date),
+        "dailyHeatmap": _daily_heatmap(analytics_frame, start_date, end_date),
     }
 
 
@@ -381,8 +385,9 @@ def _build_summary_for_account(account: Dict[str, Any], start_date: str, end_dat
     )
 
     rollups = get_week_rollups(start_date, end_date, df=current_df)
+    previous_rollups = get_week_rollups(prev_start, prev_end, df=previous_df)
     current_total = float(rollups["summary"]["total_expense"])
-    previous_total = float(previous_df.loc[previous_df["amount"] < 0, "amount"].abs().sum().round(2))
+    previous_total = float(previous_rollups["summary"]["total_expense"])
     delta_percent = round(((current_total - previous_total) / previous_total) * 100, 2) if previous_total else (100.0 if current_total else 0.0)
     delta_text = f"{delta_percent:+.1f}% vs previous window"
 
