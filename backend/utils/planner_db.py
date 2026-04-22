@@ -9,10 +9,12 @@ DEFAULT_PLANNER_DB_PATH = "finance_planner.sqlite"
 
 
 def get_planner_db_path(db_path: Optional[str] = None) -> str:
+    """Resolve the planner DB path from an explicit argument or environment."""
     return db_path or os.getenv("FINANCE_PLANNER_DB_PATH", DEFAULT_PLANNER_DB_PATH)
 
 
 def get_planner_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
+    """Open a planner DB connection and ensure the minimal schema exists."""
     conn = sqlite3.connect(get_planner_db_path(db_path))
     conn.row_factory = sqlite3.Row
     _ensure_schema(conn)
@@ -20,11 +22,15 @@ def get_planner_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
 
 
 def init_planner_db(db_path: Optional[str] = None) -> None:
+    """Initialize the planner DB schema eagerly for scripts or tests."""
     with get_planner_connection(db_path) as conn:
         conn.commit()
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """Create the minimal planner tables and indexes if they do not exist."""
+    # Keep planner state in its own SQLite schema so budgets/goals can evolve
+    # independently from the ledger DB and the chat/document stores.
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS budget_plans (
