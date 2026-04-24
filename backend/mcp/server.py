@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 from importlib.util import find_spec
 
+from backend.mcp.prompts import register_prompts
 from backend.mcp.resources import register_resources
 from backend.mcp.schemas import MCPItemDefinition, MCPServerDefinition
 from backend.mcp.tools import register_tools
@@ -88,4 +89,5 @@ def build_runtime_server(*, db_path: str | None = None) -> Any:
     mcp = FastMCP(name=SERVER_NAME)
     register_resources(mcp, db_path=db_path)
     register_tools(mcp, db_path=db_path)
+    register_prompts(mcp, db_path=db_path)
     return mcp

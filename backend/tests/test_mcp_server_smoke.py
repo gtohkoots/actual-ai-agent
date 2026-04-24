@@ -55,6 +55,7 @@ def test_runtime_builder_returns_definition_even_without_runtime_dependency():
 def test_runtime_builder_registers_resources_when_fastmcp_is_available(monkeypatch):
     registered_resources = []
     registered_tools = []
+    registered_prompts = []
 
     class FakeFastMCP:
         def __init__(self, name):
@@ -69,6 +70,12 @@ def test_runtime_builder_registers_resources_when_fastmcp_is_available(monkeypat
         def tool(self, **kwargs):
             def decorator(fn):
                 registered_tools.append((kwargs.get("name"), kwargs.get("description")))
+                return fn
+            return decorator
+
+        def prompt(self, **kwargs):
+            def decorator(fn):
+                registered_prompts.append((kwargs.get("name"), kwargs.get("description")))
                 return fn
             return decorator
 
@@ -91,4 +98,8 @@ def test_runtime_builder_registers_resources_when_fastmcp_is_available(monkeypat
         "get_category_budget_status",
         "create_budget_plan",
         "update_budget_target",
+    ]
+    assert [item[0] for item in registered_prompts] == [
+        "review_current_budget",
+        "adjust_budget_target",
     ]
