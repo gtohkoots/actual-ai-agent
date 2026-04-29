@@ -24,6 +24,14 @@ def test_register_tools_registers_budget_tool_names():
         "get_category_budget_status",
         "create_budget_plan",
         "update_budget_target",
+        "get_portfolio_summary",
+        "get_category_spend",
+        "get_account_breakdown",
+        "get_transaction_slice",
+        "compare_periods",
+        "get_spending_drift",
+        "detect_spending_anomalies",
+        "find_recurring_charges",
     ]
 
 
@@ -90,4 +98,50 @@ def test_registered_create_budget_plan_calls_budget_service(monkeypatch):
         [{"category_name": "Grocery", "target_amount": 500}],
         "active",
     )
+    assert payload == expected
+
+
+def test_registered_get_portfolio_summary_calls_ledger_service(monkeypatch):
+    registered = {}
+
+    class FakeFastMCP:
+        def tool(self, **kwargs):
+            def decorator(fn):
+                registered[kwargs.get("name")] = fn
+                return fn
+            return decorator
+
+    expected = {"summary": {"total_expense": 100.0}}
+    monkeypatch.setattr(
+        mcp_tools,
+        "get_portfolio_summary",
+        lambda period_start, period_end, account_pid=None, account_name=None, db_path=None: expected,
+    )
+
+    mcp_tools.register_tools(FakeFastMCP(), db_path="planner.sqlite")
+
+    payload = registered["get_portfolio_summary"]("2026-04-01", "2026-04-30")
+    assert payload == expected
+
+
+def test_registered_compare_periods_calls_ledger_service(monkeypatch):
+    registered = {}
+
+    class FakeFastMCP:
+        def tool(self, **kwargs):
+            def decorator(fn):
+                registered[kwargs.get("name")] = fn
+                return fn
+            return decorator
+
+    expected = {"total_deltas": {"total_expense": 25.0}}
+    monkeypatch.setattr(
+        mcp_tools,
+        "compare_periods",
+        lambda current_start, current_end, previous_start, previous_end, db_path=None: expected,
+    )
+
+    mcp_tools.register_tools(FakeFastMCP(), db_path="planner.sqlite")
+
+    payload = registered["compare_periods"]("2026-04-01", "2026-04-30", "2026-03-01", "2026-03-31")
     assert payload == expected

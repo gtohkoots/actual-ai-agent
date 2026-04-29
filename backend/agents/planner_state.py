@@ -11,9 +11,11 @@ class PlannerAgentState:
     user_message: str
     active_budget_plan: dict[str, Any]
     budget_status: dict[str, Any]
+    tool_results: dict[str, Any] = field(default_factory=dict)
     prompt_context: dict[str, Any] = field(default_factory=dict)
     model_response: dict[str, Any] = field(default_factory=dict)
     summary: str = ""
     highlights: list[str] = field(default_factory=list)
     next_action: str = ""
     used_resources: list[str] = field(default_factory=list)
+    used_tools: list[str] = field(default_factory=list)

@@ -12,7 +12,8 @@ Return valid JSON only with keys: summary, highlights, next_action.
 summary must be a concise paragraph.
 highlights must be an array of short concrete bullet-style strings.
 next_action must be one sentence describing the best immediate follow-up.
-If there is no active budget plan, explain that clearly and suggest creating one first.
+If the context is about budget review and there is no active budget plan, explain that clearly and suggest creating one first.
+If the context is about historical spending review, focus on what changed, the main drivers, and one useful follow-up.
 """.strip()
 
 
@@ -20,12 +21,17 @@ def build_planner_prompt_context(
     user_message: str,
     active_budget_plan: dict[str, Any],
     budget_status: dict[str, Any],
+    *,
+    review_mode: str = "budget_review",
+    tool_results: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble the MCP-derived context the planner model is allowed to reason over."""
     return {
         "user_message": user_message,
+        "review_mode": review_mode,
         "active_budget_plan": active_budget_plan,
         "budget_status": budget_status,
+        "tool_results": tool_results or {},
     }
 
 

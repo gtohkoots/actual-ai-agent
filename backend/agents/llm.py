@@ -59,6 +59,9 @@ def _parse_model_payload(raw: Any) -> dict[str, Any]:
 
 def _fallback_planner_response(prompt_context: dict[str, Any]) -> dict[str, Any]:
     """Provide a deterministic response when the LLM is unavailable."""
+    if prompt_context.get("review_mode") == "historical_review":
+        return _fallback_historical_response(prompt_context)
+
     active_plan = prompt_context.get("active_budget_plan", {})
     current_status = prompt_context.get("budget_status", {})
 
@@ -114,4 +117,49 @@ def _fallback_planner_response(prompt_context: dict[str, Any]) -> dict[str, Any]
         ),
         "highlights": highlights,
         "next_action": next_action,
+    }
+
+
+def _fallback_historical_response(prompt_context: dict[str, Any]) -> dict[str, Any]:
+    """Provide a deterministic historical-spending review when the LLM is unavailable."""
+    tool_results = prompt_context.get("tool_results", {})
+    portfolio = tool_results.get("get_portfolio_summary", {})
+    categories = tool_results.get("get_category_spend", {}).get("categories", [])
+    accounts = tool_results.get("get_account_breakdown", {}).get("accounts", [])
+    drift = tool_results.get("get_spending_drift", {}).get("top_category_changes", [])
+
+    summary_data = portfolio.get("summary", {})
+    period_start = portfolio.get("period_start", "the requested period")
+    period_end = portfolio.get("period_end", "")
+    period = period_start if not period_end else f"{period_start} to {period_end}"
+    highlights: list[str] = []
+
+    if categories:
+        top_category = categories[0]
+        highlights.append(
+            f'{top_category["category_name"]} was the top spending category at ${top_category["amount"]:.2f}.'
+        )
+    if accounts:
+        top_account = sorted(accounts, key=lambda item: item.get("expense_amount", 0.0), reverse=True)[0]
+        highlights.append(
+            f'{top_account["account_name"]} drove the most spending at ${top_account["expense_amount"]:.2f}.'
+        )
+    if drift:
+        top_change = drift[0]
+        direction = "up" if top_change.get("delta", 0.0) >= 0 else "down"
+        highlights.append(
+            f'{top_change["category_name"]} moved {direction} by ${abs(top_change["delta"]):.2f} versus the baseline period.'
+        )
+    if not highlights:
+        highlights.append("No major historical spending driver was identified from the current context.")
+
+    return {
+        "summary": (
+            f"Historical spending review for {period}: "
+            f'total expense ${summary_data.get("total_expense", 0.0):.2f}, '
+            f'total income ${summary_data.get("total_income", 0.0):.2f}, '
+            f'net cash flow ${summary_data.get("net_cashflow", 0.0):.2f}.'
+        ),
+        "highlights": highlights,
+        "next_action": "Review the top category changes and decide whether any of them should influence your next budget update.",
     }

@@ -58,6 +58,46 @@ def create_server_definition() -> MCPServerDefinition:
                 description="Insert or update one category target in an existing budget plan.",
                 approval_required=True,
             ),
+            MCPItemDefinition(
+                name="get_portfolio_summary",
+                item_type="tool",
+                description="Return income, expense, net cash flow, and transaction count for a requested period.",
+            ),
+            MCPItemDefinition(
+                name="get_category_spend",
+                item_type="tool",
+                description="Return the top expense categories for a requested period.",
+            ),
+            MCPItemDefinition(
+                name="get_account_breakdown",
+                item_type="tool",
+                description="Return income, expense, and net cash flow grouped by account for a requested period.",
+            ),
+            MCPItemDefinition(
+                name="get_transaction_slice",
+                item_type="tool",
+                description="Return a bounded filtered transaction list for a requested period.",
+            ),
+            MCPItemDefinition(
+                name="compare_periods",
+                item_type="tool",
+                description="Compare two periods and return total deltas plus category changes.",
+            ),
+            MCPItemDefinition(
+                name="get_spending_drift",
+                item_type="tool",
+                description="Explain how spending changed against a baseline period.",
+            ),
+            MCPItemDefinition(
+                name="detect_spending_anomalies",
+                item_type="tool",
+                description="Return unusual expenses for a requested period.",
+            ),
+            MCPItemDefinition(
+                name="find_recurring_charges",
+                item_type="tool",
+                description="Return recurring-charge candidates for a requested period.",
+            ),
         ),
         prompts=(
             MCPItemDefinition(
