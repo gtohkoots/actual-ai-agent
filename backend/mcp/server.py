@@ -98,6 +98,11 @@ def create_server_definition() -> MCPServerDefinition:
                 item_type="tool",
                 description="Return recurring-charge candidates for a requested period.",
             ),
+            MCPItemDefinition(
+                name="recommend_budget_targets",
+                item_type="tool",
+                description="Recommend savings-aware category targets for a future budget period using recent spending history.",
+            ),
         ),
         prompts=(
             MCPItemDefinition(
@@ -109,6 +114,11 @@ def create_server_definition() -> MCPServerDefinition:
                 name="adjust_budget_target",
                 item_type="prompt",
                 description="Guide the assistant through adjusting a category target with approval.",
+            ),
+            MCPItemDefinition(
+                name="recommend_budget_plan",
+                item_type="prompt",
+                description="Guide the assistant through proposing a new budget plan before saving it.",
             ),
         ),
     )

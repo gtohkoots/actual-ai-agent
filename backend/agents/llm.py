@@ -59,6 +59,8 @@ def _parse_model_payload(raw: Any) -> dict[str, Any]:
 
 def _fallback_planner_response(prompt_context: dict[str, Any]) -> dict[str, Any]:
     """Provide a deterministic response when the LLM is unavailable."""
+    if prompt_context.get("review_mode") == "budget_recommendation":
+        return _fallback_budget_recommendation_response(prompt_context)
     if prompt_context.get("review_mode") == "historical_review":
         return _fallback_historical_response(prompt_context)
 
@@ -162,4 +164,35 @@ def _fallback_historical_response(prompt_context: dict[str, Any]) -> dict[str, A
         ),
         "highlights": highlights,
         "next_action": "Review the top category changes and decide whether any of them should influence your next budget update.",
+    }
+
+
+def _fallback_budget_recommendation_response(prompt_context: dict[str, Any]) -> dict[str, Any]:
+    """Provide a deterministic explanation for a budget recommendation payload."""
+    recommendation = prompt_context.get("tool_results", {}).get("recommend_budget_targets", {})
+    period_start = recommendation.get("period_start", "the requested start date")
+    period_end = recommendation.get("period_end", "the requested end date")
+    planned_savings = recommendation.get("planned_savings", 0.0)
+    total_budgeted_spend = recommendation.get("total_budgeted_spend", 0.0)
+    category_targets = recommendation.get("category_targets", [])
+
+    highlights = [
+        (
+            f'{item["category_name"]} is set to ${item["recommended_target"]:.2f} '
+            f'from a baseline of ${item["baseline_amount"]:.2f}.'
+        )
+        for item in category_targets[:3]
+        if "baseline_amount" in item and "recommended_target" in item
+    ]
+    if not highlights:
+        highlights.append("No category targets were recommended from the available history.")
+
+    return {
+        "summary": (
+            f"Recommended budget for {period_start} to {period_end}: "
+            f'planned savings ${planned_savings:.2f}, '
+            f'total budgeted spend ${total_budgeted_spend:.2f}.'
+        ),
+        "highlights": highlights,
+        "next_action": "Review the draft and confirm whether you want to save it as a new budget plan.",
     }

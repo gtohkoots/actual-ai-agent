@@ -157,3 +157,64 @@ def test_run_planner_agent_calls_historical_tools_for_last_month(monkeypatch):
     assert tool_calls[0][0] == "get_portfolio_summary"
     assert tool_calls[0][1]["period_start"] == "2026-03-01"
     assert "March spending" in result["summary"]
+
+
+def test_run_planner_agent_calls_budget_recommendation_tool(monkeypatch):
+    payloads = {
+        "planner://budget/active-plan": {"status": "missing"},
+        "planner://budget/current-status": {"status": "missing"},
+    }
+    tool_calls = []
+
+    monkeypatch.setattr(
+        planner_agent,
+        "get_multiple_resource_payloads",
+        lambda uris, db_path=None: {uri: payloads[uri] for uri in uris},
+    )
+
+    def fake_call_tool_payload(tool_name, arguments=None, db_path=None):
+        tool_calls.append((tool_name, arguments))
+        return {
+            "period_start": "2026-04-28",
+            "period_end": "2026-05-27",
+            "planned_savings": 500.0,
+            "total_budgeted_spend": 2000.0,
+            "category_targets": [
+                {
+                    "category_name": "Grocery",
+                    "baseline_amount": 450.0,
+                    "recommended_target": 472.5,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(planner_agent, "call_tool_payload", fake_call_tool_payload)
+    monkeypatch.setattr(
+        planner_agent,
+        "generate_planner_response",
+        lambda prompt_context: {
+            "summary": "Here is a one-month budget recommendation starting today with savings reserved first.",
+            "highlights": ["Grocery is set slightly above baseline to protect essentials."],
+            "next_action": "Review the draft and confirm whether you want to save it as a new budget plan.",
+        },
+    )
+    monkeypatch.setattr(
+        planner_agent,
+        "date",
+        type(
+            "FakeDate",
+            (),
+            {
+                "today": staticmethod(lambda: __import__("datetime").date(2026, 4, 28)),
+                "fromisoformat": staticmethod(__import__("datetime").date.fromisoformat),
+            },
+        ),
+    )
+
+    result = planner_agent.run_planner_agent("Create a budget starting today for a month and save $500")
+
+    assert result["used_tools"] == ["recommend_budget_targets"]
+    assert result["prompt_context"]["review_mode"] == "budget_recommendation"
+    assert tool_calls[0][0] == "recommend_budget_targets"
+    assert tool_calls[0][1]["savings_target"] == 500.0
+    assert "one-month budget recommendation" in result["summary"]

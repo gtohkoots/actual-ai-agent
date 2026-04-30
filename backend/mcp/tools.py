@@ -8,6 +8,7 @@ from backend.services.budgets import (
     get_category_budget_status,
     update_budget_target,
 )
+from backend.services.budget_recommendations import recommend_budget_targets
 from backend.services.ledger_analysis import (
     compare_periods,
     detect_spending_anomalies,
@@ -193,3 +194,23 @@ def register_tools(mcp: Any, *, db_path: Optional[str] = None) -> None:
     )
     def mcp_find_recurring_charges(period_start: str, period_end: str) -> dict[str, Any]:
         return find_recurring_charges(period_start, period_end, db_path=db_path)
+
+    @mcp.tool(
+        name="recommend_budget_targets",
+        description="Recommend savings-aware category targets for a future budget period using recent spending history.",
+    )
+    def mcp_recommend_budget_targets(
+        period_start: str,
+        period_end: str,
+        history_periods: int = 3,
+        savings_target: float | None = None,
+        savings_rate: float | None = None,
+    ) -> dict[str, Any]:
+        return recommend_budget_targets(
+            period_start,
+            period_end,
+            history_periods=history_periods,
+            savings_target=savings_target,
+            savings_rate=savings_rate,
+            db_path=db_path,
+        )

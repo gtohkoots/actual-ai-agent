@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date, timedelta
 from typing import Any, Optional
 
@@ -28,6 +29,9 @@ def run_planner_agent(user_message: str, *, db_path: Optional[str] = None) -> di
     review_mode = _detect_review_mode(user_message)
     if review_mode == "historical_review":
         state.tool_results = _load_historical_tool_results(user_message, db_path=db_path)
+        state.used_tools = list(state.tool_results.keys())
+    elif review_mode == "budget_recommendation":
+        state.tool_results = _load_budget_recommendation_tool_results(user_message, db_path=db_path)
         state.used_tools = list(state.tool_results.keys())
 
     state.prompt_context = build_planner_prompt_context(
@@ -65,6 +69,12 @@ def _serialize_state(state: PlannerAgentState) -> dict[str, Any]:
 def _detect_review_mode(user_message: str) -> str:
     """Choose between budget review and historical spending review."""
     normalized = user_message.strip().lower()
+    budget_markers = [
+        "create a budget",
+        "recommend a budget",
+        "budget starting",
+        "budget for a month",
+    ]
     historical_markers = [
         "last month",
         "previous month",
@@ -72,6 +82,8 @@ def _detect_review_mode(user_message: str) -> str:
         "review spending",
         "spending behavior",
     ]
+    if any(marker in normalized for marker in budget_markers):
+        return "budget_recommendation"
     if any(marker in normalized for marker in historical_markers):
         return "historical_review"
     return "budget_review"
@@ -120,6 +132,47 @@ def _resolve_historical_window(user_message: str) -> tuple[str, str]:
     today = date.today()
     start = today - timedelta(days=29)
     return start.isoformat(), today.isoformat()
+
+
+def _load_budget_recommendation_tool_results(user_message: str, *, db_path: Optional[str] = None) -> dict[str, Any]:
+    """Load the recommendation tool payload for budget-creation style requests."""
+    period_start, period_end = _resolve_budget_recommendation_window(user_message)
+    savings_target = _extract_savings_target(user_message)
+    return {
+        "recommend_budget_targets": call_tool_payload(
+            "recommend_budget_targets",
+            arguments={
+                "period_start": period_start,
+                "period_end": period_end,
+                "history_periods": 3,
+                "savings_target": savings_target,
+            },
+            db_path=db_path,
+        )
+    }
+
+
+def _resolve_budget_recommendation_window(user_message: str) -> tuple[str, str]:
+    """Resolve a narrow set of supported budget recommendation windows."""
+    normalized = user_message.strip().lower()
+    today = date.today()
+    if "starting today" in normalized and "month" in normalized:
+        end = today + timedelta(days=29)
+        return today.isoformat(), end.isoformat()
+    if "next month" in normalized:
+        next_month_start = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
+        next_month_end = ((next_month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1))
+        return next_month_start.isoformat(), next_month_end.isoformat()
+    end = today + timedelta(days=29)
+    return today.isoformat(), end.isoformat()
+
+
+def _extract_savings_target(user_message: str) -> float | None:
+    """Extract a simple savings target like 'save $500' from the user message."""
+    match = re.search(r"save\s+\$?(\d+(?:\.\d+)?)", user_message.lower())
+    if not match:
+        return None
+    return round(float(match.group(1)), 2)
 
 
 def _previous_matching_window(period_start: str, period_end: str) -> tuple[str, str]:

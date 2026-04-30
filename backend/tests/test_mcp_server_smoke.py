@@ -31,10 +31,12 @@ def test_create_server_definition_exposes_minimal_budget_surface():
         "get_spending_drift",
         "detect_spending_anomalies",
         "find_recurring_charges",
+        "recommend_budget_targets",
     ]
     assert [item.name for item in definition.prompts] == [
         "review_current_budget",
         "adjust_budget_target",
+        "recommend_budget_plan",
     ]
 
 
@@ -53,6 +55,7 @@ def test_write_budget_tools_are_marked_as_approval_required():
     assert approval_map["get_spending_drift"] is False
     assert approval_map["detect_spending_anomalies"] is False
     assert approval_map["find_recurring_charges"] is False
+    assert approval_map["recommend_budget_targets"] is False
     assert approval_map["create_budget_plan"] is True
     assert approval_map["update_budget_target"] is True
 
@@ -122,8 +125,10 @@ def test_runtime_builder_registers_resources_when_fastmcp_is_available(monkeypat
         "get_spending_drift",
         "detect_spending_anomalies",
         "find_recurring_charges",
+        "recommend_budget_targets",
     ]
     assert [item[0] for item in registered_prompts] == [
         "review_current_budget",
         "adjust_budget_target",
+        "recommend_budget_plan",
     ]

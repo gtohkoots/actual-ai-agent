@@ -32,6 +32,7 @@ def test_register_tools_registers_budget_tool_names():
         "get_spending_drift",
         "detect_spending_anomalies",
         "find_recurring_charges",
+        "recommend_budget_targets",
     ]
 
 
@@ -144,4 +145,27 @@ def test_registered_compare_periods_calls_ledger_service(monkeypatch):
     mcp_tools.register_tools(FakeFastMCP(), db_path="planner.sqlite")
 
     payload = registered["compare_periods"]("2026-04-01", "2026-04-30", "2026-03-01", "2026-03-31")
+    assert payload == expected
+
+
+def test_registered_recommend_budget_targets_calls_recommendation_service(monkeypatch):
+    registered = {}
+
+    class FakeFastMCP:
+        def tool(self, **kwargs):
+            def decorator(fn):
+                registered[kwargs.get("name")] = fn
+                return fn
+            return decorator
+
+    expected = {"planned_savings": 300.0}
+    monkeypatch.setattr(
+        mcp_tools,
+        "recommend_budget_targets",
+        lambda period_start, period_end, history_periods=3, savings_target=None, savings_rate=None, db_path=None: expected,
+    )
+
+    mcp_tools.register_tools(FakeFastMCP(), db_path="planner.sqlite")
+
+    payload = registered["recommend_budget_targets"]("2026-04-28", "2026-05-27", 3, 300.0, None)
     assert payload == expected

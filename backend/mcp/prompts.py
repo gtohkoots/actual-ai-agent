@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from backend.mcp.resources import read_active_budget_plan, read_current_budget_status
+from backend.services.budget_recommendations import recommend_budget_targets
 
 
 def register_prompts(mcp: Any, *, db_path: Optional[str] = None) -> None:
@@ -40,3 +41,27 @@ def register_prompts(mcp: Any, *, db_path: Optional[str] = None) -> None:
             "and ask for confirmation before applying the update."
         )
 
+    @mcp.prompt(
+        name="recommend_budget_plan",
+        description="Guide the assistant through proposing a new budget plan before saving it.",
+    )
+    def recommend_budget_plan(
+        period_start: str,
+        period_end: str,
+        savings_target: float | None = None,
+        savings_rate: float | None = None,
+    ) -> str:
+        recommended = recommend_budget_targets(
+            period_start,
+            period_end,
+            savings_target=savings_target,
+            savings_rate=savings_rate,
+            db_path=db_path,
+        )
+        return (
+            "Propose a new budget plan for the user.\n\n"
+            f"Requested period: {period_start} to {period_end}\n"
+            f"Recommended budget draft:\n{recommended}\n\n"
+            "Explain how the category targets were derived from recent spending history, "
+            "call out the savings assumption, and ask for confirmation before creating the plan."
+        )
