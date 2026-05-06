@@ -4,7 +4,7 @@ import re
 from datetime import date, timedelta
 from typing import Any, Optional
 
-from backend.agents.llm import generate_planner_response
+from backend.agents.llm import generate_planner_response, interpret_planner_turn_intent
 from backend.agents.mcp_client import call_tool_payload, get_multiple_resource_payloads
 from backend.agents.prompts import build_planner_prompt_context
 from backend.agents.planner_state import PlannerAgentState
@@ -26,13 +26,22 @@ def run_planner_agent(user_message: str, *, db_path: Optional[str] = None) -> di
         budget_status=current_status,
         used_resources=resources,
     )
-    review_mode = _detect_review_mode(user_message)
+    state.turn_intent = interpret_planner_turn_intent(user_message, has_pending_recommendation=False)
+    review_mode = state.turn_intent.get("intent", "budget_review")
     if review_mode == "historical_review":
-        state.tool_results = _load_historical_tool_results(user_message, db_path=db_path)
-        state.used_tools = list(state.tool_results.keys())
+        state.tool_results = _load_historical_tool_results(
+            user_message,
+            allowed_tools=state.turn_intent.get("allowed_tools", []),
+            db_path=db_path,
+        )
+        state.used_tools = _ordered_used_tools(state.turn_intent, state.tool_results)
     elif review_mode == "budget_recommendation":
-        state.tool_results = _load_budget_recommendation_tool_results(user_message, db_path=db_path)
-        state.used_tools = list(state.tool_results.keys())
+        state.tool_results = _load_budget_recommendation_tool_results(
+            user_message,
+            allowed_tools=state.turn_intent.get("allowed_tools", []),
+            db_path=db_path,
+        )
+        state.used_tools = _ordered_used_tools(state.turn_intent, state.tool_results)
 
     state.prompt_context = build_planner_prompt_context(
         user_message=user_message,
@@ -58,6 +67,7 @@ def _serialize_state(state: PlannerAgentState) -> dict[str, Any]:
         "next_action": state.next_action,
         "used_resources": state.used_resources,
         "used_tools": state.used_tools,
+        "turn_intent": state.turn_intent,
         "tool_results": state.tool_results,
         "prompt_context": state.prompt_context,
         "model_response": state.model_response,
@@ -66,30 +76,41 @@ def _serialize_state(state: PlannerAgentState) -> dict[str, Any]:
     }
 
 
-def _detect_review_mode(user_message: str) -> str:
-    """Choose between budget review and historical spending review."""
-    normalized = user_message.strip().lower()
-    budget_markers = [
-        "create a budget",
-        "recommend a budget",
-        "budget starting",
-        "budget for a month",
-    ]
-    historical_markers = [
-        "last month",
-        "previous month",
-        "past month",
-        "review spending",
-        "spending behavior",
-    ]
-    if any(marker in normalized for marker in budget_markers):
-        return "budget_recommendation"
-    if any(marker in normalized for marker in historical_markers):
-        return "historical_review"
-    return "budget_review"
+def _ordered_used_tools(turn_intent: dict[str, Any], tool_results: dict[str, Any]) -> list[str]:
+    """Prefer the interpreted allowed-tool order while keeping any actual tool results."""
+    ordered = [tool_name for tool_name in turn_intent.get("allowed_tools", []) if tool_name in tool_results]
+    extras = [tool_name for tool_name in tool_results.keys() if tool_name not in ordered]
+    return ordered + extras
 
 
-def _load_historical_tool_results(user_message: str, *, db_path: Optional[str] = None) -> dict[str, Any]:
+def _filter_allowed_tool_arguments(
+    tool_arguments: dict[str, dict[str, Any]],
+    *,
+    allowed_tools: list[str],
+    workflow_name: str,
+) -> dict[str, dict[str, Any]]:
+    """Restrict a workflow to the explicit tool subset allowed for this turn."""
+    if not allowed_tools:
+        raise ValueError(f"No allowed tools were provided for the {workflow_name} workflow.")
+
+    allowed_argument_map = {
+        tool_name: arguments
+        for tool_name, arguments in tool_arguments.items()
+        if tool_name in allowed_tools
+    }
+    if not allowed_argument_map:
+        raise ValueError(
+            f"No allowed tools matched the supported tool set for the {workflow_name} workflow."
+        )
+    return allowed_argument_map
+
+
+def _load_historical_tool_results(
+    user_message: str,
+    *,
+    allowed_tools: list[str],
+    db_path: Optional[str] = None,
+) -> dict[str, Any]:
     """Load the MCP tool payloads needed for a historical spending review."""
     period_start, period_end = _resolve_historical_window(user_message)
     baseline_start, baseline_end = _previous_matching_window(period_start, period_end)
@@ -113,9 +134,14 @@ def _load_historical_tool_results(user_message: str, *, db_path: Optional[str] =
             "baseline_end": baseline_end,
         },
     }
+    allowed_argument_map = _filter_allowed_tool_arguments(
+        tool_arguments,
+        allowed_tools=allowed_tools,
+        workflow_name="historical_review",
+    )
     return {
         tool_name: call_tool_payload(tool_name, arguments=arguments, db_path=db_path)
-        for tool_name, arguments in tool_arguments.items()
+        for tool_name, arguments in allowed_argument_map.items()
     }
 
 
@@ -134,21 +160,31 @@ def _resolve_historical_window(user_message: str) -> tuple[str, str]:
     return start.isoformat(), today.isoformat()
 
 
-def _load_budget_recommendation_tool_results(user_message: str, *, db_path: Optional[str] = None) -> dict[str, Any]:
+def _load_budget_recommendation_tool_results(
+    user_message: str,
+    *,
+    allowed_tools: list[str],
+    db_path: Optional[str] = None,
+) -> dict[str, Any]:
     """Load the recommendation tool payload for budget-creation style requests."""
     period_start, period_end = _resolve_budget_recommendation_window(user_message)
     savings_target = _extract_savings_target(user_message)
+    tool_arguments = {
+        "recommend_budget_targets": {
+            "period_start": period_start,
+            "period_end": period_end,
+            "history_periods": 3,
+            "savings_target": savings_target,
+        }
+    }
+    allowed_argument_map = _filter_allowed_tool_arguments(
+        tool_arguments,
+        allowed_tools=allowed_tools,
+        workflow_name="budget_recommendation",
+    )
     return {
-        "recommend_budget_targets": call_tool_payload(
-            "recommend_budget_targets",
-            arguments={
-                "period_start": period_start,
-                "period_end": period_end,
-                "history_periods": 3,
-                "savings_target": savings_target,
-            },
-            db_path=db_path,
-        )
+        tool_name: call_tool_payload(tool_name, arguments=arguments, db_path=db_path)
+        for tool_name, arguments in allowed_argument_map.items()
     }
 
 

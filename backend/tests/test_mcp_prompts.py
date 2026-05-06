@@ -22,6 +22,8 @@ def test_register_prompts_registers_budget_prompt_names():
         "review_current_budget",
         "adjust_budget_target",
         "recommend_budget_plan",
+        "revise_budget_plan",
+        "finalize_budget_plan",
     ]
 
 
@@ -90,3 +92,69 @@ def test_recommend_budget_plan_prompt_includes_recommended_payload(monkeypatch):
     prompt_text = registered["recommend_budget_plan"]("2026-04-28", "2026-05-27", 400.0, None)
     assert "Requested period: 2026-04-28 to 2026-05-27" in prompt_text
     assert "planned_savings" in prompt_text
+
+
+def test_revise_budget_plan_prompt_includes_revised_payload(monkeypatch):
+    registered = {}
+
+    class FakeFastMCP:
+        def prompt(self, **kwargs):
+            def decorator(fn):
+                registered[kwargs.get("name")] = fn
+                return fn
+            return decorator
+
+    monkeypatch.setattr(
+        mcp_prompts,
+        "recommend_budget_targets",
+        lambda period_start, period_end, savings_target=None, savings_rate=None, db_path=None: {
+            "planned_savings": 400.0,
+            "category_targets": [{"category_name": "Grocery", "recommended_target": 500.0}],
+        },
+    )
+    monkeypatch.setattr(
+        mcp_prompts,
+        "revise_budget_recommendation",
+        lambda current_recommendation, user_comment, db_path=None: {
+            "planned_savings": 500.0,
+            "revision_context": {"protected_categories": ["Bills"]},
+        },
+    )
+
+    mcp_prompts.register_prompts(FakeFastMCP())
+
+    prompt_text = registered["revise_budget_plan"]({"planned_savings": 400.0}, "raise dine")
+    assert "User feedback: raise dine" in prompt_text
+    assert "protected_categories" in prompt_text
+
+
+def test_finalize_budget_plan_prompt_includes_mapped_create_payload(monkeypatch):
+    registered = {}
+
+    class FakeFastMCP:
+        def prompt(self, **kwargs):
+            def decorator(fn):
+                registered[kwargs.get("name")] = fn
+                return fn
+            return decorator
+
+    monkeypatch.setattr(
+        mcp_prompts,
+        "map_recommendation_to_budget_plan_payload",
+        lambda recommendation: {
+            "period_start": "2026-05-03",
+            "period_end": "2026-06-01",
+            "targets": [{"category_name": "Savings", "target_amount": 500.0}],
+            "status": "active",
+        },
+    )
+
+    mcp_prompts.register_prompts(FakeFastMCP())
+
+    prompt_text = registered["finalize_budget_plan"](
+        {"planned_savings": 500.0, "category_targets": []},
+        "User approved the revised draft.",
+    )
+    assert "User approved the revised draft." in prompt_text
+    assert "Mapped create_budget_plan payload" in prompt_text
+    assert "create_budget_plan shape first" in prompt_text

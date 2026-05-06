@@ -23,6 +23,17 @@ def test_run_planner_agent_handles_missing_active_budget(monkeypatch):
             "next_action": "Create a budget plan before requesting a budget review.",
         },
     )
+    monkeypatch.setattr(
+        planner_agent,
+        "interpret_planner_turn_intent",
+        lambda user_message, has_pending_recommendation=False: {
+            "intent": "budget_review",
+            "confidence": 0.9,
+            "needs_pending_recommendation": False,
+            "allowed_tools": [],
+            "notes": "Current-budget review request.",
+        },
+    )
 
     result = planner_agent.run_planner_agent("Review my budget")
 
@@ -33,6 +44,7 @@ def test_run_planner_agent_handles_missing_active_budget(monkeypatch):
         "planner://budget/current-status",
     ]
     assert result["used_tools"] == []
+    assert result["turn_intent"]["intent"] == "budget_review"
 
 
 def test_run_planner_agent_summarizes_budget_status(monkeypatch):
@@ -94,6 +106,17 @@ def test_run_planner_agent_summarizes_budget_status(monkeypatch):
             "next_action": "Review the overspent categories first and decide whether to reduce spending or raise their targets.",
         },
     )
+    monkeypatch.setattr(
+        planner_agent,
+        "interpret_planner_turn_intent",
+        lambda user_message, has_pending_recommendation=False: {
+            "intent": "budget_review",
+            "confidence": 0.95,
+            "needs_pending_recommendation": False,
+            "allowed_tools": [],
+            "notes": "Current-budget review request.",
+        },
+    )
 
     result = planner_agent.run_planner_agent("Review my budget")
 
@@ -134,6 +157,22 @@ def test_run_planner_agent_calls_historical_tools_for_last_month(monkeypatch):
         return {"top_category_changes": [{"category_name": "Dining", "delta": 85.0}]}
 
     monkeypatch.setattr(planner_agent, "call_tool_payload", fake_call_tool_payload)
+    monkeypatch.setattr(
+        planner_agent,
+        "interpret_planner_turn_intent",
+        lambda user_message, has_pending_recommendation=False: {
+            "intent": "historical_review",
+            "confidence": 0.93,
+            "needs_pending_recommendation": False,
+            "allowed_tools": [
+                "get_portfolio_summary",
+                "get_category_spend",
+                "get_account_breakdown",
+                "get_spending_drift",
+            ],
+            "notes": "Historical review request.",
+        },
+    )
     monkeypatch.setattr(
         planner_agent,
         "generate_planner_response",
@@ -191,6 +230,17 @@ def test_run_planner_agent_calls_budget_recommendation_tool(monkeypatch):
     monkeypatch.setattr(planner_agent, "call_tool_payload", fake_call_tool_payload)
     monkeypatch.setattr(
         planner_agent,
+        "interpret_planner_turn_intent",
+        lambda user_message, has_pending_recommendation=False: {
+            "intent": "budget_recommendation",
+            "confidence": 0.94,
+            "needs_pending_recommendation": False,
+            "allowed_tools": ["recommend_budget_targets"],
+            "notes": "Budget recommendation request.",
+        },
+    )
+    monkeypatch.setattr(
+        planner_agent,
         "generate_planner_response",
         lambda prompt_context: {
             "summary": "Here is a one-month budget recommendation starting today with savings reserved first.",
@@ -218,3 +268,68 @@ def test_run_planner_agent_calls_budget_recommendation_tool(monkeypatch):
     assert tool_calls[0][0] == "recommend_budget_targets"
     assert tool_calls[0][1]["savings_target"] == 500.0
     assert "one-month budget recommendation" in result["summary"]
+
+
+def test_run_planner_agent_limits_historical_execution_to_allowed_tools(monkeypatch):
+    payloads = {
+        "planner://budget/active-plan": {"status": "missing"},
+        "planner://budget/current-status": {"status": "missing"},
+    }
+    tool_calls = []
+
+    monkeypatch.setattr(
+        planner_agent,
+        "get_multiple_resource_payloads",
+        lambda uris, db_path=None: {uri: payloads[uri] for uri in uris},
+    )
+    monkeypatch.setattr(
+        planner_agent,
+        "interpret_planner_turn_intent",
+        lambda user_message, has_pending_recommendation=False: {
+            "intent": "historical_review",
+            "confidence": 0.9,
+            "needs_pending_recommendation": False,
+            "allowed_tools": [
+                "get_portfolio_summary",
+                "get_spending_drift",
+            ],
+            "notes": "Historical review limited to a subset.",
+        },
+    )
+    monkeypatch.setattr(
+        planner_agent,
+        "call_tool_payload",
+        lambda tool_name, arguments=None, db_path=None: tool_calls.append((tool_name, arguments)) or {"ok": True},
+    )
+    monkeypatch.setattr(
+        planner_agent,
+        "generate_planner_response",
+        lambda prompt_context: {
+            "summary": "Subset historical review completed.",
+            "highlights": [],
+            "next_action": "No further action needed.",
+        },
+    )
+    monkeypatch.setattr(
+        planner_agent,
+        "date",
+        type(
+            "FakeDate",
+            (),
+            {
+                "today": staticmethod(lambda: __import__("datetime").date(2026, 4, 26)),
+                "fromisoformat": staticmethod(__import__("datetime").date.fromisoformat),
+            },
+        ),
+    )
+
+    result = planner_agent.run_planner_agent("Review spending for last month")
+
+    assert result["used_tools"] == [
+        "get_portfolio_summary",
+        "get_spending_drift",
+    ]
+    assert [tool_name for tool_name, _ in tool_calls] == [
+        "get_portfolio_summary",
+        "get_spending_drift",
+    ]

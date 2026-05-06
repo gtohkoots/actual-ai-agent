@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from backend.mcp.resources import read_active_budget_plan, read_current_budget_status
+from backend.services.budget_payloads import map_recommendation_to_budget_plan_payload
 from backend.services.budget_recommendations import recommend_budget_targets
+from backend.services.recommendation_revisions import revise_budget_recommendation
 
 
 def register_prompts(mcp: Any, *, db_path: Optional[str] = None) -> None:
@@ -64,4 +66,43 @@ def register_prompts(mcp: Any, *, db_path: Optional[str] = None) -> None:
             f"Recommended budget draft:\n{recommended}\n\n"
             "Explain how the category targets were derived from recent spending history, "
             "call out the savings assumption, and ask for confirmation before creating the plan."
+        )
+
+    @mcp.prompt(
+        name="revise_budget_plan",
+        description="Guide the assistant through revising a proposed budget plan from user feedback.",
+    )
+    def revise_budget_plan(current_recommendation: dict[str, Any], user_comment: str) -> str:
+        revised = revise_budget_recommendation(
+            current_recommendation=current_recommendation,
+            user_comment=user_comment,
+            db_path=db_path,
+        )
+        return (
+            "Revise the user's proposed budget plan.\n\n"
+            f"User feedback: {user_comment}\n\n"
+            f"Revised recommendation:\n{revised}\n\n"
+            "Explain what changed, which categories were protected or adjusted, "
+            "and ask for confirmation before saving the revised plan."
+        )
+
+    @mcp.prompt(
+        name="finalize_budget_plan",
+        description="Guide the assistant through saving an approved budget recommendation or revised draft.",
+    )
+    def finalize_budget_plan(
+        approved_recommendation: dict[str, Any],
+        approval_note: str = "The user approved this budget plan.",
+    ) -> str:
+        create_payload = map_recommendation_to_budget_plan_payload(approved_recommendation)
+        return (
+            "Finalize the user's budget plan after explicit approval.\n\n"
+            f"Approval note: {approval_note}\n\n"
+            f"Approved recommendation:\n{approved_recommendation}\n\n"
+            f"Mapped create_budget_plan payload:\n{create_payload}\n\n"
+            "Use this flow whether the approved draft came directly from recommend_budget_targets "
+            "or from revise_budget_recommendation.\n"
+            "If the user has not explicitly approved the draft yet, stop and ask for confirmation first.\n"
+            "After approval, do not call create_budget_plan with the recommendation payload directly. "
+            "Always convert it into the create_budget_plan shape first, then pass the mapped payload to create_budget_plan."
         )

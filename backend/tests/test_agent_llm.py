@@ -56,3 +56,28 @@ def test_generate_planner_response_parses_model_payload(monkeypatch):
         "highlights": ["Dining is slightly elevated."],
         "next_action": "Watch dining spend for the rest of the week.",
     }
+
+
+def test_interpret_planner_turn_intent_uses_fallback_without_api_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    result = planner_llm.interpret_planner_turn_intent(
+        "Create a budget starting today for a month and save $500",
+        has_pending_recommendation=False,
+    )
+
+    assert result["intent"] == "budget_recommendation"
+    assert result["allowed_tools"] == ["recommend_budget_targets"]
+
+
+def test_interpret_planner_turn_intent_detects_revision_when_pending_draft_exists(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    result = planner_llm.interpret_planner_turn_intent(
+        "Keep savings at $500 and increase Dine a bit.",
+        has_pending_recommendation=True,
+    )
+
+    assert result["intent"] == "budget_revision"
+    assert result["needs_pending_recommendation"] is True
+    assert result["allowed_tools"] == ["revise_budget_recommendation"]

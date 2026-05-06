@@ -60,6 +60,8 @@ def recommend_budget_targets(
     history_periods: int = 3,
     savings_target: Optional[float] = None,
     savings_rate: Optional[float] = None,
+    category_overrides: Optional[dict[str, dict[str, Any]]] = None,
+    protected_categories: Optional[list[str]] = None,
     db_path: Optional[str] = None,
 ) -> dict[str, Any]:
     """Recommend category targets from recent ledger behavior while reserving savings first."""
@@ -86,10 +88,16 @@ def recommend_budget_targets(
         savings_target=savings_target,
         savings_rate=savings_rate,
     )
+    category_targets = _apply_category_constraints(
+        category_targets,
+        category_overrides=category_overrides or {},
+        protected_categories=protected_categories or [],
+    )
     category_targets, total_budgeted_spend = _rebalance_for_savings(
         category_targets,
         expected_income=expected_income,
         savings_target=chosen_savings_target,
+        protected_categories=protected_categories or [],
     )
 
     return {
@@ -117,6 +125,7 @@ def recommend_budget_targets(
             "income_categories_used": sorted(INFLOW_CATEGORIES),
             "savings_categories_used": sorted(SAVINGS_CATEGORIES),
             "excluded_recommendation_categories": sorted(EXCLUDED_RECOMMENDATION_CATEGORIES),
+            "protected_categories": protected_categories or [],
         },
     }
 
@@ -280,6 +289,7 @@ def _rebalance_for_savings(
     *,
     expected_income: float,
     savings_target: float,
+    protected_categories: list[str],
 ) -> tuple[list[dict[str, Any]], float]:
     """Reduce flexible categories until spend plus savings fits the expected income."""
     categories = [dict(item) for item in category_targets]
@@ -288,17 +298,29 @@ def _rebalance_for_savings(
     shortfall = round(total_budgeted_spend - available_for_spend, 2)
 
     if shortfall > 0:
-        shortfall = _reduce_category_group(categories, "discretionary", shortfall)
+        shortfall = _reduce_category_group(categories, "discretionary", shortfall, protected_categories=protected_categories)
     if shortfall > 0:
-        shortfall = _reduce_category_group(categories, "essential", shortfall)
+        shortfall = _reduce_category_group(categories, "essential", shortfall, protected_categories=protected_categories)
 
     total_budgeted_spend = round(sum(item["recommended_target"] for item in categories), 2)
     return categories, total_budgeted_spend
 
 
-def _reduce_category_group(categories: list[dict[str, Any]], category_type: str, shortfall: float) -> float:
+def _reduce_category_group(
+    categories: list[dict[str, Any]],
+    category_type: str,
+    shortfall: float,
+    *,
+    protected_categories: list[str],
+) -> float:
     """Reduce one category group proportionally and return any unresolved shortfall."""
-    group = [item for item in categories if item["category_type"] == category_type and item["recommended_target"] > 0]
+    group = [
+        item
+        for item in categories
+        if item["category_type"] == category_type
+        and item["recommended_target"] > 0
+        and item["category_name"] not in protected_categories
+    ]
     group_total = sum(item["recommended_target"] for item in group)
     if not group or group_total <= 0:
         return shortfall
@@ -316,6 +338,32 @@ def _reduce_category_group(categories: list[dict[str, Any]], category_type: str,
             )
 
     return round(max(shortfall - total_reduced, 0.0), 2)
+
+
+def _apply_category_constraints(
+    category_targets: list[dict[str, Any]],
+    *,
+    category_overrides: dict[str, dict[str, Any]],
+    protected_categories: list[str],
+) -> list[dict[str, Any]]:
+    """Apply explicit revision constraints before income-fit rebalancing."""
+    updated_targets = [dict(item) for item in category_targets]
+    for item in updated_targets:
+        category_name = item["category_name"]
+        if category_name in protected_categories:
+            item["adjustment_reason"] = f'{item["adjustment_reason"]} Protected by user request.'
+
+        override = category_overrides.get(category_name)
+        if not override:
+            continue
+        if override.get("target_amount") is not None:
+            item["recommended_target"] = round(max(float(override["target_amount"]), 0.0), 2)
+            item["adjustment_reason"] = f'{item["adjustment_reason"]} Updated from explicit user target.'
+            continue
+        if override.get("amount_delta") is not None:
+            item["recommended_target"] = round(max(item["recommended_target"] + float(override["amount_delta"]), 0.0), 2)
+            item["adjustment_reason"] = f'{item["adjustment_reason"]} Adjusted based on user feedback.'
+    return updated_targets
 
 
 def _weighted_average(values: list[float]) -> float:

@@ -13,6 +13,7 @@ It:
 - reads planner state through a real FastMCP client
 - calls MCP tools when it needs historical ledger analysis
 - calls MCP tools when it needs a savings-aware budget recommendation
+- can use an MCP tool to convert an approved recommendation into the exact `create_budget_plan` payload shape
 - packages that MCP context into a planner prompt payload
 - uses an LLM to synthesize the summary, highlights, and next action
 - falls back to deterministic output when no OpenAI key is configured
@@ -75,6 +76,7 @@ It can also call these MCP tools for historical review:
 For budget recommendation flows it can call:
 
 - `recommend_budget_targets`
+- `prepare_budget_plan_from_recommendation`
 
 These resources are implemented in:
 

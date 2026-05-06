@@ -33,6 +33,8 @@ def test_register_tools_registers_budget_tool_names():
         "detect_spending_anomalies",
         "find_recurring_charges",
         "recommend_budget_targets",
+        "revise_budget_recommendation",
+        "prepare_budget_plan_from_recommendation",
     ]
 
 
@@ -168,4 +170,59 @@ def test_registered_recommend_budget_targets_calls_recommendation_service(monkey
     mcp_tools.register_tools(FakeFastMCP(), db_path="planner.sqlite")
 
     payload = registered["recommend_budget_targets"]("2026-04-28", "2026-05-27", 3, 300.0, None)
+    assert payload == expected
+
+
+def test_registered_revise_budget_recommendation_calls_revision_service(monkeypatch):
+    registered = {}
+
+    class FakeFastMCP:
+        def tool(self, **kwargs):
+            def decorator(fn):
+                registered[kwargs.get("name")] = fn
+                return fn
+            return decorator
+
+    expected = {"planned_savings": 500.0}
+    monkeypatch.setattr(
+        mcp_tools,
+        "revise_budget_recommendation",
+        lambda current_recommendation, user_comment, db_path=None: expected,
+    )
+
+    mcp_tools.register_tools(FakeFastMCP(), db_path="planner.sqlite")
+
+    payload = registered["revise_budget_recommendation"]({"planned_savings": 400.0}, "raise dine")
+    assert payload == expected
+
+
+def test_registered_prepare_budget_plan_from_recommendation_calls_mapping_service(monkeypatch):
+    registered = {}
+
+    class FakeFastMCP:
+        def tool(self, **kwargs):
+            def decorator(fn):
+                registered[kwargs.get("name")] = fn
+                return fn
+            return decorator
+
+    expected = {
+        "period_start": "2026-05-03",
+        "period_end": "2026-06-01",
+        "targets": [{"category_name": "Bills", "target_amount": 1200.0}],
+        "status": "active",
+    }
+    monkeypatch.setattr(
+        mcp_tools,
+        "map_recommendation_to_budget_plan_payload",
+        lambda recommendation, status="active", include_savings_target=True: expected,
+    )
+
+    mcp_tools.register_tools(FakeFastMCP(), db_path="planner.sqlite")
+
+    payload = registered["prepare_budget_plan_from_recommendation"](
+        {"period_start": "2026-05-03", "period_end": "2026-06-01", "category_targets": []},
+        "active",
+        True,
+    )
     assert payload == expected

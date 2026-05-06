@@ -103,6 +103,16 @@ def create_server_definition() -> MCPServerDefinition:
                 item_type="tool",
                 description="Recommend savings-aware category targets for a future budget period using recent spending history.",
             ),
+            MCPItemDefinition(
+                name="revise_budget_recommendation",
+                item_type="tool",
+                description="Revise a proposed budget recommendation using the current draft and a user comment.",
+            ),
+            MCPItemDefinition(
+                name="prepare_budget_plan_from_recommendation",
+                item_type="tool",
+                description="Convert an approved budget recommendation into the exact create_budget_plan payload shape.",
+            ),
         ),
         prompts=(
             MCPItemDefinition(
@@ -119,6 +129,16 @@ def create_server_definition() -> MCPServerDefinition:
                 name="recommend_budget_plan",
                 item_type="prompt",
                 description="Guide the assistant through proposing a new budget plan before saving it.",
+            ),
+            MCPItemDefinition(
+                name="revise_budget_plan",
+                item_type="prompt",
+                description="Guide the assistant through revising a proposed budget plan from user feedback.",
+            ),
+            MCPItemDefinition(
+                name="finalize_budget_plan",
+                item_type="prompt",
+                description="Guide the assistant through saving an approved budget recommendation or revised draft.",
             ),
         ),
     )

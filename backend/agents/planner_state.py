@@ -19,3 +19,4 @@ class PlannerAgentState:
     next_action: str = ""
     used_resources: list[str] = field(default_factory=list)
     used_tools: list[str] = field(default_factory=list)
+    turn_intent: dict[str, Any] = field(default_factory=dict)

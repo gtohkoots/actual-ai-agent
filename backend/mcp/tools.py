@@ -8,7 +8,9 @@ from backend.services.budgets import (
     get_category_budget_status,
     update_budget_target,
 )
+from backend.services.budget_payloads import map_recommendation_to_budget_plan_payload
 from backend.services.budget_recommendations import recommend_budget_targets
+from backend.services.recommendation_revisions import revise_budget_recommendation
 from backend.services.ledger_analysis import (
     compare_periods,
     detect_spending_anomalies,
@@ -213,4 +215,33 @@ def register_tools(mcp: Any, *, db_path: Optional[str] = None) -> None:
             savings_target=savings_target,
             savings_rate=savings_rate,
             db_path=db_path,
+        )
+
+    @mcp.tool(
+        name="revise_budget_recommendation",
+        description="Revise a proposed budget recommendation using the current draft and a user comment.",
+    )
+    def mcp_revise_budget_recommendation(
+        current_recommendation: dict[str, Any],
+        user_comment: str,
+    ) -> dict[str, Any]:
+        return revise_budget_recommendation(
+            current_recommendation=current_recommendation,
+            user_comment=user_comment,
+            db_path=db_path,
+        )
+
+    @mcp.tool(
+        name="prepare_budget_plan_from_recommendation",
+        description="Convert an approved budget recommendation into the exact create_budget_plan payload shape.",
+    )
+    def mcp_prepare_budget_plan_from_recommendation(
+        recommendation: dict[str, Any],
+        status: str = "active",
+        include_savings_target: bool = True,
+    ) -> dict[str, Any]:
+        return map_recommendation_to_budget_plan_payload(
+            recommendation,
+            status=status,
+            include_savings_target=include_savings_target,
         )

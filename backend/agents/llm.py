@@ -9,6 +9,31 @@ from langchain_openai import ChatOpenAI
 
 from backend.agents.prompts import PLANNER_AGENT_SYSTEM_PROMPT, build_planner_user_payload
 
+TURN_INTENT_SYSTEM_PROMPT = """
+You are an intent interpreter for a finance planner assistant.
+Classify the user's latest message into one of:
+- budget_review
+- historical_review
+- budget_recommendation
+- budget_revision
+- budget_approval
+
+Return valid JSON only with keys:
+- intent
+- confidence
+- needs_pending_recommendation
+- allowed_tools
+- notes
+
+Rules:
+- historical_review is for past-spending questions such as last month or previous month analysis.
+- budget_recommendation is for creating or recommending a new budget draft.
+- budget_revision is for changing an existing proposed budget draft and should only be used if a pending recommendation exists.
+- budget_approval is for explicit approval to save a pending draft and should only be used if a pending recommendation exists.
+- budget_review is the default when the user is asking about the current budget or when no other category cleanly fits.
+- allowed_tools should contain only the tools that would be relevant for the chosen intent.
+""".strip()
+
 
 def generate_planner_response(prompt_context: dict[str, Any]) -> dict[str, Any]:
     """Use the configured chat model to synthesize a planner response from MCP context."""
@@ -39,6 +64,43 @@ def generate_planner_response(prompt_context: dict[str, Any]) -> dict[str, Any]:
         return _fallback_planner_response(prompt_context)
 
 
+def interpret_planner_turn_intent(
+    user_message: str,
+    *,
+    has_pending_recommendation: bool = False,
+) -> dict[str, Any]:
+    """Interpret the user's latest turn into structured intent for bounded routing."""
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        return _fallback_turn_intent(user_message, has_pending_recommendation=has_pending_recommendation)
+
+    llm = ChatOpenAI(
+        model=os.getenv("FINANCE_PLANNER_AGENT_MODEL", os.getenv("FINANCE_CHAT_MODEL", "gpt-4o-mini")),
+        temperature=0,
+    )
+
+    try:
+        response = llm.invoke(
+            [
+                SystemMessage(content=TURN_INTENT_SYSTEM_PROMPT),
+                HumanMessage(
+                    content=json.dumps(
+                        {
+                            "user_message": user_message,
+                            "has_pending_recommendation": has_pending_recommendation,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                ),
+            ]
+        )
+        parsed = _parse_model_payload(response.content)
+        return _normalize_turn_intent(parsed, user_message, has_pending_recommendation=has_pending_recommendation)
+    except Exception:
+        return _fallback_turn_intent(user_message, has_pending_recommendation=has_pending_recommendation)
+
+
 def _parse_model_payload(raw: Any) -> dict[str, Any]:
     """Parse JSON-only model output, tolerating fenced code blocks."""
     text = str(raw).strip()
@@ -55,6 +117,126 @@ def _parse_model_payload(raw: Any) -> dict[str, Any]:
         if start >= 0 and end > start:
             return json.loads(text[start : end + 1])
         raise
+
+
+def _normalize_turn_intent(
+    payload: dict[str, Any],
+    user_message: str,
+    *,
+    has_pending_recommendation: bool,
+) -> dict[str, Any]:
+    """Normalize model-produced intent payloads into a stable routing shape."""
+    supported_intents = {
+        "budget_review",
+        "historical_review",
+        "budget_recommendation",
+        "budget_revision",
+        "budget_approval",
+    }
+    intent = str(payload.get("intent", "")).strip()
+    if intent not in supported_intents:
+        return _fallback_turn_intent(user_message, has_pending_recommendation=has_pending_recommendation)
+
+    normalized = {
+        "intent": intent,
+        "confidence": max(0.0, min(float(payload.get("confidence", 0.0)), 1.0)),
+        "needs_pending_recommendation": bool(payload.get("needs_pending_recommendation", False)),
+        "allowed_tools": [str(item).strip() for item in payload.get("allowed_tools", []) if str(item).strip()],
+        "notes": str(payload.get("notes", "")).strip(),
+    }
+    if normalized["needs_pending_recommendation"] and not has_pending_recommendation:
+        return _fallback_turn_intent(user_message, has_pending_recommendation=has_pending_recommendation)
+    return normalized
+
+
+def _fallback_turn_intent(user_message: str, *, has_pending_recommendation: bool) -> dict[str, Any]:
+    """Provide deterministic intent routing when model interpretation is unavailable."""
+    normalized = user_message.strip().lower()
+
+    approval_markers = [
+        "approve this",
+        "approve it",
+        "save this budget",
+        "save this plan",
+        "create it",
+        "looks good",
+        "confirm this budget",
+    ]
+    if has_pending_recommendation and any(marker in normalized for marker in approval_markers):
+        return {
+            "intent": "budget_approval",
+            "confidence": 0.9,
+            "needs_pending_recommendation": True,
+            "allowed_tools": [
+                "prepare_budget_plan_from_recommendation",
+                "create_budget_plan",
+            ],
+            "notes": "The user appears to be approving the currently pending draft.",
+        }
+
+    revision_markers = [
+        "increase ",
+        "decrease ",
+        "reduce ",
+        "raise ",
+        "lower ",
+        "don't touch",
+        "do not touch",
+        "keep savings",
+        "instead",
+    ]
+    if has_pending_recommendation and any(marker in normalized for marker in revision_markers):
+        return {
+            "intent": "budget_revision",
+            "confidence": 0.82,
+            "needs_pending_recommendation": True,
+            "allowed_tools": ["revise_budget_recommendation"],
+            "notes": "The user appears to be changing the currently pending draft.",
+        }
+
+    budget_markers = [
+        "create a budget",
+        "recommend a budget",
+        "budget starting",
+        "budget for a month",
+    ]
+    if any(marker in normalized for marker in budget_markers):
+        return {
+            "intent": "budget_recommendation",
+            "confidence": 0.88,
+            "needs_pending_recommendation": False,
+            "allowed_tools": ["recommend_budget_targets"],
+            "notes": "The user is asking for a new budget draft.",
+        }
+
+    historical_markers = [
+        "last month",
+        "previous month",
+        "past month",
+        "review spending",
+        "spending behavior",
+    ]
+    if any(marker in normalized for marker in historical_markers):
+        return {
+            "intent": "historical_review",
+            "confidence": 0.88,
+            "needs_pending_recommendation": False,
+            "allowed_tools": [
+                "get_portfolio_summary",
+                "get_category_spend",
+                "get_account_breakdown",
+                "get_spending_drift",
+            ],
+            "notes": "The user is asking for historical spending analysis.",
+        }
+
+    return {
+        "intent": "budget_review",
+        "confidence": 0.7,
+        "needs_pending_recommendation": False,
+        "allowed_tools": [],
+        "notes": "Defaulted to current-budget review routing.",
+    }
 
 
 def _fallback_planner_response(prompt_context: dict[str, Any]) -> dict[str, Any]:
