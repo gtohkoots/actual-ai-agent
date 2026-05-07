@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 DEFAULT_CONVERSATION_DB_PATH = "finance_chat.sqlite"
+PLANNER_STATE_KEY = "planner_state"
 
 
 def get_conversation_db_path(db_path: Optional[str] = None) -> str:
@@ -60,6 +61,26 @@ def _context_from_request(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return context or {}
 
 
+def _load_context_json(raw: Optional[str]) -> Dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _merge_context_dicts(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(existing)
+    for key, value in incoming.items():
+        if isinstance(merged.get(key), dict) and isinstance(value, dict):
+            merged[key] = _merge_context_dicts(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def _upsert_conversation_in_connection(
     conn: sqlite3.Connection,
     conversation_id: str,
@@ -67,10 +88,18 @@ def _upsert_conversation_in_connection(
 ) -> None:
     now = _now_iso()
     existing = conn.execute(
-        "SELECT created_at FROM chat_conversations WHERE conversation_id = ?",
+        """
+        SELECT created_at, account_pid, account_name, card_label, context_json
+        FROM chat_conversations
+        WHERE conversation_id = ?
+        """,
         (conversation_id,),
     ).fetchone()
     if existing:
+        merged_context = _merge_context_dicts(
+            _load_context_json(existing["context_json"]),
+            context_dict,
+        )
         conn.execute(
             """
             UPDATE chat_conversations
@@ -78,16 +107,17 @@ def _upsert_conversation_in_connection(
             WHERE conversation_id = ?
             """,
             (
-                context_dict.get("account_pid"),
-                context_dict.get("account_name"),
-                context_dict.get("card_label"),
-                json.dumps(context_dict, ensure_ascii=False),
+                merged_context.get("account_pid") or existing["account_pid"],
+                merged_context.get("account_name") or existing["account_name"],
+                merged_context.get("card_label") or existing["card_label"],
+                json.dumps(merged_context, ensure_ascii=False),
                 now,
                 now,
                 conversation_id,
             ),
         )
     else:
+        merged_context = dict(context_dict)
         conn.execute(
             """
             INSERT INTO chat_conversations (
@@ -96,10 +126,10 @@ def _upsert_conversation_in_connection(
             """,
             (
                 conversation_id,
-                context_dict.get("account_pid"),
-                context_dict.get("account_name"),
-                context_dict.get("card_label"),
-                json.dumps(context_dict, ensure_ascii=False),
+                merged_context.get("account_pid"),
+                merged_context.get("account_name"),
+                merged_context.get("card_label"),
+                json.dumps(merged_context, ensure_ascii=False),
                 now,
                 now,
                 now,
@@ -199,11 +229,7 @@ def load_conversation(conversation_id: str, *, db_path: Optional[str] = None) ->
             (conversation_id,),
         ).fetchall()
 
-    context_json = conversation["context_json"] or "{}"
-    try:
-        context = json.loads(context_json)
-    except json.JSONDecodeError:
-        context = {}
+    context = _load_context_json(conversation["context_json"])
 
     return {
         "conversation_id": conversation["conversation_id"],
@@ -219,6 +245,54 @@ def load_conversation(conversation_id: str, *, db_path: Optional[str] = None) ->
             for row in messages
         ],
     }
+
+
+def update_conversation_context(
+    conversation_id: str,
+    context_patch: Dict[str, Any],
+    *,
+    db_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Merge a context patch into an existing conversation and return the updated thread."""
+    if not context_patch:
+        return load_conversation(conversation_id, db_path=db_path)
+
+    with get_conversation_connection(db_path) as conn:
+        existing = conn.execute(
+            """
+            SELECT conversation_id, context_json
+            FROM chat_conversations
+            WHERE conversation_id = ?
+            """,
+            (conversation_id,),
+        ).fetchone()
+        if existing is None:
+            raise KeyError(conversation_id)
+        _upsert_conversation_in_connection(conn, conversation_id, context_patch)
+    return load_conversation(conversation_id, db_path=db_path)
+
+
+def load_planner_state(conversation_id: str, *, db_path: Optional[str] = None) -> Dict[str, Any]:
+    """Return planner workflow state nested under the conversation context."""
+    thread = load_conversation(conversation_id, db_path=db_path)
+    planner_state = thread.get("context", {}).get(PLANNER_STATE_KEY, {})
+    return planner_state if isinstance(planner_state, dict) else {}
+
+
+def save_planner_state(
+    conversation_id: str,
+    planner_state: Dict[str, Any],
+    *,
+    db_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Persist planner workflow state into the existing conversation context."""
+    if not isinstance(planner_state, dict):
+        raise ValueError("planner_state must be a dictionary.")
+    return update_conversation_context(
+        conversation_id,
+        {PLANNER_STATE_KEY: planner_state},
+        db_path=db_path,
+    )
 
 
 def list_conversations(
@@ -263,11 +337,7 @@ def list_conversations(
 
     conversations: List[Dict[str, Any]] = []
     for row in rows:
-        context_json = row["context_json"] or "{}"
-        try:
-            context = json.loads(context_json)
-        except json.JSONDecodeError:
-            context = {}
+        context = _load_context_json(row["context_json"])
         conversations.append(
             {
                 "conversation_id": row["conversation_id"],
