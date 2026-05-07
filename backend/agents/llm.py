@@ -241,6 +241,10 @@ def _fallback_turn_intent(user_message: str, *, has_pending_recommendation: bool
 
 def _fallback_planner_response(prompt_context: dict[str, Any]) -> dict[str, Any]:
     """Provide a deterministic response when the LLM is unavailable."""
+    if prompt_context.get("review_mode") == "budget_approval":
+        return _fallback_budget_approval_response(prompt_context)
+    if prompt_context.get("review_mode") == "budget_revision":
+        return _fallback_budget_revision_response(prompt_context)
     if prompt_context.get("review_mode") == "budget_recommendation":
         return _fallback_budget_recommendation_response(prompt_context)
     if prompt_context.get("review_mode") == "historical_review":
@@ -377,4 +381,84 @@ def _fallback_budget_recommendation_response(prompt_context: dict[str, Any]) -> 
         ),
         "highlights": highlights,
         "next_action": "Review the draft and confirm whether you want to save it as a new budget plan.",
+    }
+
+
+def _fallback_budget_revision_response(prompt_context: dict[str, Any]) -> dict[str, Any]:
+    """Provide a deterministic explanation for a revised budget recommendation payload."""
+    revised = prompt_context.get("tool_results", {}).get("revise_budget_recommendation", {})
+    if not revised:
+        return {
+            "summary": "There is no pending budget draft to revise yet.",
+            "highlights": ["Start by asking for a budget recommendation before requesting changes."],
+            "next_action": "Ask for a new budget draft first, then revise it once a recommendation exists.",
+        }
+
+    period_start = revised.get("period_start", "the requested start date")
+    period_end = revised.get("period_end", "the requested end date")
+    planned_savings = revised.get("planned_savings", 0.0)
+    revision_context = revised.get("revision_context", {})
+    protected_categories = revision_context.get("protected_categories", [])
+    category_targets = revised.get("category_targets", [])
+
+    highlights: list[str] = []
+    if protected_categories:
+        highlights.append(f"Protected categories: {', '.join(protected_categories)}.")
+    highlights.extend(
+        [
+            f'{item["category_name"]} is now set to ${item["recommended_target"]:.2f}.'
+            for item in category_targets[:3]
+            if "recommended_target" in item
+        ]
+    )
+    if not highlights:
+        highlights.append("The revised draft is ready for review.")
+
+    return {
+        "summary": (
+            f"Revised budget draft for {period_start} to {period_end}: "
+            f'planned savings remain ${planned_savings:.2f}.'
+        ),
+        "highlights": highlights,
+        "next_action": "Review the revised draft and confirm whether you want to save it.",
+    }
+
+
+def _fallback_budget_approval_response(prompt_context: dict[str, Any]) -> dict[str, Any]:
+    """Provide a deterministic confirmation after a budget draft is saved."""
+    saved_plan = prompt_context.get("tool_results", {}).get("create_budget_plan", {})
+    create_payload = prompt_context.get("tool_results", {}).get("prepare_budget_plan_from_recommendation", {})
+    if not saved_plan:
+        return {
+            "summary": "There is no approved budget draft ready to save yet.",
+            "highlights": ["A budget draft must exist before the planner can save it."],
+            "next_action": "Ask for a budget recommendation first, then approve it when you are ready.",
+        }
+
+    period_start = saved_plan.get("period_start", create_payload.get("period_start", "the requested start date"))
+    period_end = saved_plan.get("period_end", create_payload.get("period_end", "the requested end date"))
+    targets = saved_plan.get("targets", create_payload.get("targets", []))
+    savings_target = next(
+        (
+            item.get("target_amount", 0.0)
+            for item in targets
+            if item.get("category_name") == "Savings"
+        ),
+        0.0,
+    )
+
+    highlights = [
+        f'{item["category_name"]} saved at ${item["target_amount"]:.2f}.'
+        for item in targets[:3]
+        if "target_amount" in item
+    ]
+    if savings_target:
+        highlights.append(f"Savings was included as a real budget target at ${savings_target:.2f}.")
+    if not highlights:
+        highlights.append("The approved budget draft was saved successfully.")
+
+    return {
+        "summary": f"Saved budget plan for {period_start} to {period_end}.",
+        "highlights": highlights,
+        "next_action": "Review the new active plan and monitor it against live spending.",
     }

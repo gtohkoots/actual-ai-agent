@@ -20,3 +20,5 @@ class PlannerAgentState:
     used_resources: list[str] = field(default_factory=list)
     used_tools: list[str] = field(default_factory=list)
     turn_intent: dict[str, Any] = field(default_factory=dict)
+    planner_state: dict[str, Any] = field(default_factory=dict)
+    updated_planner_state: dict[str, Any] = field(default_factory=dict)

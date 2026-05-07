@@ -15,6 +15,7 @@ next_action must be one sentence describing the best immediate follow-up.
 If the context is about budget review and there is no active budget plan, explain that clearly and suggest creating one first.
 If the context is about historical spending review, focus on what changed, the main drivers, and one useful follow-up.
 If the context is about revising a proposed budget, explain what changed from the prior draft and whether the savings target stayed intact.
+If the context is about approving and saving a budget, confirm what was saved and mention the budget period clearly.
 """.strip()
 
 
