@@ -749,18 +749,40 @@ function App() {
           </article>
         </section>
 
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="section-label">Budgeting Workspace</p>
-              <h3>{isGoalsView ? "Goal definition" : "Execution plan"}</h3>
+        <section className="budgeting-stage">
+          <article className="panel budgeting-workspace-card">
+            <div className="panel-header">
+              <div>
+                <p className="section-label">Budgeting Workspace</p>
+                <h3>{isGoalsView ? "Goal definition" : "Execution plan"}</h3>
+              </div>
             </div>
-          </div>
-          <p className="panel-note">
-            {isGoalsView
-              ? "Use this section to set short-term goals (travel, emergency fund) and long-term goals (car, home, family)."
-              : "Use this section to break each goal into monthly contributions, spending limits, and timeline checkpoints."}
-          </p>
+            <p className="panel-note">
+              {isGoalsView
+                ? "Use the planner chat to draft a savings-aware budget, compare recent spending, and reshape the plan until the targets feel realistic."
+                : "Use the planner chat to turn this window into a working monthly budget, revise category targets, and save the plan once you approve it."}
+            </p>
+            <div className="merchant-list">
+              <div className="merchant-row">
+                <span>Ask for a fresh draft</span>
+                <strong>Create a one-month budget</strong>
+              </div>
+              <div className="merchant-row">
+                <span>Revise the proposal</span>
+                <strong>Raise, lower, or protect categories</strong>
+              </div>
+              <div className="merchant-row">
+                <span>Finalize when ready</span>
+                <strong>Approve the budget to save it</strong>
+              </div>
+            </div>
+          </article>
+
+          <ChatPanel
+            card={selectedCard}
+            analysisWindow={selectedWindow}
+            mode="planner"
+          />
         </section>
       </>
     );

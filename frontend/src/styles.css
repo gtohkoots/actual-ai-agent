@@ -645,6 +645,18 @@ button {
   grid-template-columns: 1.15fr 0.85fr;
 }
 
+.budgeting-stage {
+  display: grid;
+  grid-template-columns: 0.82fr 1.18fr;
+  gap: 18px;
+  align-items: start;
+  margin-top: 22px;
+}
+
+.budgeting-workspace-card {
+  min-height: 100%;
+}
+
 .overview-focus-grid {
   display: grid;
   grid-template-columns: 0.7fr 1.3fr;
@@ -1479,6 +1491,7 @@ textarea {
   .overview-secondary-grid,
   .overview-grid,
   .dashboard-grid,
+  .budgeting-stage,
   .transactions-and-chat {
     grid-template-columns: 1fr;
   }

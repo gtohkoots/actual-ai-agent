@@ -32,7 +32,53 @@ Rules:
 - budget_approval is for explicit approval to save a pending draft and should only be used if a pending recommendation exists.
 - budget_review is the default when the user is asking about the current budget or when no other category cleanly fits.
 - allowed_tools should contain only the tools that would be relevant for the chosen intent.
+- Use exact tool names from this list when you populate allowed_tools:
+  - budget_review: []
+  - historical_review: get_portfolio_summary, get_category_spend, get_account_breakdown, get_spending_drift
+  - budget_recommendation: recommend_budget_targets
+  - budget_revision: revise_budget_recommendation
+  - budget_approval: prepare_budget_plan_from_recommendation, create_budget_plan
 """.strip()
+
+
+INTENT_DEFAULT_TOOLS = {
+    "budget_review": [],
+    "historical_review": [
+        "get_portfolio_summary",
+        "get_category_spend",
+        "get_account_breakdown",
+        "get_spending_drift",
+    ],
+    "budget_recommendation": ["recommend_budget_targets"],
+    "budget_revision": ["revise_budget_recommendation"],
+    "budget_approval": [
+        "prepare_budget_plan_from_recommendation",
+        "create_budget_plan",
+    ],
+}
+
+TOOL_NAME_ALIASES = {
+    "recommend_budget": "recommend_budget_targets",
+    "recommend_budget_target": "recommend_budget_targets",
+    "recommend_budget_targets": "recommend_budget_targets",
+    "revise_budget": "revise_budget_recommendation",
+    "revise_budget_target": "revise_budget_recommendation",
+    "revise_budget_targets": "revise_budget_recommendation",
+    "revise_budget_recommendation": "revise_budget_recommendation",
+    "prepare_budget_plan": "prepare_budget_plan_from_recommendation",
+    "prepare_budget_from_recommendation": "prepare_budget_plan_from_recommendation",
+    "prepare_budget_plan_from_recommendation": "prepare_budget_plan_from_recommendation",
+    "create_budget": "create_budget_plan",
+    "create_budget_plan": "create_budget_plan",
+    "portfolio_summary": "get_portfolio_summary",
+    "get_portfolio_summary": "get_portfolio_summary",
+    "category_spend": "get_category_spend",
+    "get_category_spend": "get_category_spend",
+    "account_breakdown": "get_account_breakdown",
+    "get_account_breakdown": "get_account_breakdown",
+    "spending_drift": "get_spending_drift",
+    "get_spending_drift": "get_spending_drift",
+}
 
 
 def generate_planner_response(prompt_context: dict[str, Any]) -> dict[str, Any]:
@@ -141,12 +187,31 @@ def _normalize_turn_intent(
         "intent": intent,
         "confidence": max(0.0, min(float(payload.get("confidence", 0.0)), 1.0)),
         "needs_pending_recommendation": bool(payload.get("needs_pending_recommendation", False)),
-        "allowed_tools": [str(item).strip() for item in payload.get("allowed_tools", []) if str(item).strip()],
+        "allowed_tools": _canonical_allowed_tools(intent, payload.get("allowed_tools", [])),
         "notes": str(payload.get("notes", "")).strip(),
     }
     if normalized["needs_pending_recommendation"] and not has_pending_recommendation:
         return _fallback_turn_intent(user_message, has_pending_recommendation=has_pending_recommendation)
     return normalized
+
+
+def _canonical_allowed_tools(intent: str, raw_allowed_tools: Any) -> list[str]:
+    """Normalize tool names to the supported MCP tool set for the chosen intent."""
+    default_tools = list(INTENT_DEFAULT_TOOLS.get(intent, []))
+    if not isinstance(raw_allowed_tools, list):
+        return default_tools
+
+    supported_tools = set(default_tools)
+    normalized_tools: list[str] = []
+    for item in raw_allowed_tools:
+        tool_name = str(item).strip()
+        if not tool_name:
+            continue
+        canonical = TOOL_NAME_ALIASES.get(tool_name, tool_name)
+        if canonical in supported_tools and canonical not in normalized_tools:
+            normalized_tools.append(canonical)
+
+    return normalized_tools or default_tools
 
 
 def _fallback_turn_intent(user_message: str, *, has_pending_recommendation: bool) -> dict[str, Any]:
@@ -167,10 +232,7 @@ def _fallback_turn_intent(user_message: str, *, has_pending_recommendation: bool
             "intent": "budget_approval",
             "confidence": 0.9,
             "needs_pending_recommendation": True,
-            "allowed_tools": [
-                "prepare_budget_plan_from_recommendation",
-                "create_budget_plan",
-            ],
+            "allowed_tools": list(INTENT_DEFAULT_TOOLS["budget_approval"]),
             "notes": "The user appears to be approving the currently pending draft.",
         }
 
@@ -190,7 +252,7 @@ def _fallback_turn_intent(user_message: str, *, has_pending_recommendation: bool
             "intent": "budget_revision",
             "confidence": 0.82,
             "needs_pending_recommendation": True,
-            "allowed_tools": ["revise_budget_recommendation"],
+            "allowed_tools": list(INTENT_DEFAULT_TOOLS["budget_revision"]),
             "notes": "The user appears to be changing the currently pending draft.",
         }
 
@@ -205,7 +267,7 @@ def _fallback_turn_intent(user_message: str, *, has_pending_recommendation: bool
             "intent": "budget_recommendation",
             "confidence": 0.88,
             "needs_pending_recommendation": False,
-            "allowed_tools": ["recommend_budget_targets"],
+            "allowed_tools": list(INTENT_DEFAULT_TOOLS["budget_recommendation"]),
             "notes": "The user is asking for a new budget draft.",
         }
 
@@ -221,12 +283,7 @@ def _fallback_turn_intent(user_message: str, *, has_pending_recommendation: bool
             "intent": "historical_review",
             "confidence": 0.88,
             "needs_pending_recommendation": False,
-            "allowed_tools": [
-                "get_portfolio_summary",
-                "get_category_spend",
-                "get_account_breakdown",
-                "get_spending_drift",
-            ],
+            "allowed_tools": list(INTENT_DEFAULT_TOOLS["historical_review"]),
             "notes": "The user is asking for historical spending analysis.",
         }
 

@@ -81,3 +81,69 @@ def test_interpret_planner_turn_intent_detects_revision_when_pending_draft_exist
     assert result["intent"] == "budget_revision"
     assert result["needs_pending_recommendation"] is True
     assert result["allowed_tools"] == ["revise_budget_recommendation"]
+
+
+def test_interpret_planner_turn_intent_normalizes_model_tool_aliases(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class FakeResponse:
+        content = """
+        {
+          "intent": "budget_revision",
+          "confidence": 0.91,
+          "needs_pending_recommendation": true,
+          "allowed_tools": ["revise_budget_targets"],
+          "notes": "Revision request."
+        }
+        """
+
+    class FakeChatOpenAI:
+        def __init__(self, model: str, temperature: int):
+            self.model = model
+            self.temperature = temperature
+
+        def invoke(self, messages):
+            return FakeResponse()
+
+    monkeypatch.setattr(planner_llm, "ChatOpenAI", FakeChatOpenAI)
+
+    result = planner_llm.interpret_planner_turn_intent(
+        "Increase Dine a bit.",
+        has_pending_recommendation=True,
+    )
+
+    assert result["intent"] == "budget_revision"
+    assert result["allowed_tools"] == ["revise_budget_recommendation"]
+
+
+def test_interpret_planner_turn_intent_defaults_tools_when_model_returns_unsupported_names(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class FakeResponse:
+        content = """
+        {
+          "intent": "budget_revision",
+          "confidence": 0.91,
+          "needs_pending_recommendation": true,
+          "allowed_tools": ["unknown_tool_name"],
+          "notes": "Revision request."
+        }
+        """
+
+    class FakeChatOpenAI:
+        def __init__(self, model: str, temperature: int):
+            self.model = model
+            self.temperature = temperature
+
+        def invoke(self, messages):
+            return FakeResponse()
+
+    monkeypatch.setattr(planner_llm, "ChatOpenAI", FakeChatOpenAI)
+
+    result = planner_llm.interpret_planner_turn_intent(
+        "Increase Dine a bit.",
+        has_pending_recommendation=True,
+    )
+
+    assert result["intent"] == "budget_revision"
+    assert result["allowed_tools"] == ["revise_budget_recommendation"]
