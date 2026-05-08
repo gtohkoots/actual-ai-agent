@@ -6,6 +6,12 @@ import remarkGfm from "remark-gfm";
 
 import { deleteChatConversation, fetchChatConversation, fetchChatConversations, sendChatMessage } from "../chat/api";
 import { createWelcomeMessage } from "../chat/mockResponder";
+import {
+  deletePlannerConversation,
+  fetchPlannerConversation,
+  fetchPlannerConversations,
+  sendPlannerMessage,
+} from "../planner/api";
 
 const CONTEXT_TABS = [
   { id: "card", label: "Card" },
@@ -13,8 +19,48 @@ const CONTEXT_TABS = [
   { id: "focus", label: "Focus" },
 ];
 
-function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "", onSeedConsumed = () => {} }) {
-  const [messages, setMessages] = useState(() => [createWelcomeMessage(card)]);
+function createPlannerWelcomeMessage(card, analysisWindow) {
+  return {
+    id: `planner-welcome-${card?.id || "default"}`,
+    role: "assistant",
+    status: "ready",
+    content:
+      `You're in the **planner workspace**. I can help review budgets, analyze recent spending, draft a savings-aware budget, revise that draft, and save it once you approve.\n\n` +
+      `The current window is **${analysisWindow?.label || card?.context?.dateRange || "the active budgeting window"}**. Ask me to create a budget, review spending, revise a draft, or approve a plan.`,
+    sources: [],
+    actions: [
+      "Create a budget starting today for a month and save $500",
+      "Review spending for last month",
+      "Review my current budget",
+    ],
+  };
+}
+
+function mapThreadMessages(thread, fallbackMessage) {
+  return (thread.messages || []).length
+    ? thread.messages.map((message) => ({
+        id: `${thread.conversation_id}-${message.created_at || message.role}-${message.role}`,
+        role: message.role,
+        content: message.content,
+        createdAt: message.created_at,
+      }))
+    : [fallbackMessage];
+}
+
+function ChatPanel({
+  card,
+  analysisWindow,
+  mode = "legacy",
+  seedMessage = "",
+  seedMessageId = "",
+  onSeedConsumed = () => {},
+}) {
+  const isPlannerMode = mode === "planner";
+  const initialWelcomeMessage = useMemo(
+    () => (isPlannerMode ? createPlannerWelcomeMessage(card, analysisWindow) : createWelcomeMessage(card)),
+    [analysisWindow, card, isPlannerMode]
+  );
+  const [messages, setMessages] = useState(() => [initialWelcomeMessage]);
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [conversationId, setConversationId] = useState(null);
@@ -28,23 +74,58 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
   const feedRef = useRef(null);
   const conversationIdRef = useRef(null);
   const consumedSeedRef = useRef("");
-  const storageKey = useMemo(() => `finance-agent:conversation:${card.context.accountPid}`, [card.context.accountPid]);
+  const storageKey = useMemo(
+    () => `finance-agent:${isPlannerMode ? "planner" : "chat"}:conversation:${card.context.accountPid}`,
+    [card.context.accountPid, isPlannerMode]
+  );
+
+  const chatApi = useMemo(
+    () => ({
+      sendMessage: isPlannerMode ? sendPlannerMessage : sendChatMessage,
+      fetchConversation: isPlannerMode ? fetchPlannerConversation : fetchChatConversation,
+      fetchConversations: isPlannerMode ? fetchPlannerConversations : fetchChatConversations,
+      deleteConversation: isPlannerMode ? deletePlannerConversation : deleteChatConversation,
+    }),
+    [isPlannerMode]
+  );
 
   const chatContext = useMemo(
-    () => ({
-      selected_tab: activeContextTab,
-      account_pid: card.context.accountPid,
-      account_name: card.context.accountName || card.context.card,
-      card_label: card.name,
-      start_date: analysisWindow?.start || card.context.windowStart,
-      end_date: analysisWindow?.end || card.context.windowEnd,
-      focus_category: card.context.focus,
-      focus_payee: card.summary.topMerchant,
-    }),
-    [activeContextTab, analysisWindow?.end, analysisWindow?.start, card]
+    () =>
+      isPlannerMode
+        ? {
+            selected_tab: "budget",
+            account_pid: card.context.accountPid,
+            account_name: card.context.accountName || card.context.card,
+            card_label: card.name,
+            start_date: analysisWindow?.start || card.context.windowStart,
+            end_date: analysisWindow?.end || card.context.windowEnd,
+          }
+        : {
+            selected_tab: activeContextTab,
+            account_pid: card.context.accountPid,
+            account_name: card.context.accountName || card.context.card,
+            card_label: card.name,
+            start_date: analysisWindow?.start || card.context.windowStart,
+            end_date: analysisWindow?.end || card.context.windowEnd,
+            focus_category: card.context.focus,
+            focus_payee: card.summary.topMerchant,
+          },
+    [activeContextTab, analysisWindow?.end, analysisWindow?.start, card, isPlannerMode]
   );
 
   const activeContextDetails = useMemo(() => {
+    if (isPlannerMode) {
+      return {
+        title: "Planner workspace",
+        description: "Build, revise, and approve budgets directly from chat using the planner agent.",
+        prompts: [
+          "Create a budget starting today for a month and save $500",
+          "Review spending for last month",
+          "Review my current budget",
+        ],
+      };
+    }
+
     if (activeContextTab === "window") {
       return {
         title: analysisWindow?.label || card.context.dateRange,
@@ -74,13 +155,13 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
       description: `Current balance ${card.summary.totalSpend} and cycle spend anchored to the selected card.`,
       prompts: card.quickPrompts.slice(0, 3),
     };
-  }, [activeContextTab, analysisWindow?.label, card]);
+  }, [activeContextTab, analysisWindow?.label, card, isPlannerMode]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function restoreConversation() {
-      setMessages([createWelcomeMessage(card)]);
+      setMessages([initialWelcomeMessage]);
       setDraft("");
       setIsSending(false);
       setErrorMessage("");
@@ -96,7 +177,7 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
       }
 
       try {
-        const thread = await fetchChatConversation(savedConversationId);
+        const thread = await chatApi.fetchConversation(savedConversationId);
         if (cancelled) return;
         if (!thread || thread.account_pid !== card.context.accountPid) {
           window.localStorage.removeItem(storageKey);
@@ -106,21 +187,12 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
         }
 
         setConversationId(thread.conversation_id);
-        setMessages(
-          (thread.messages || []).length
-            ? thread.messages.map((message) => ({
-                id: `${thread.conversation_id}-${message.created_at || message.role}-${message.role}`,
-                role: message.role,
-                content: message.content,
-                createdAt: message.created_at,
-              }))
-            : [createWelcomeMessage(card)]
-        );
+        setMessages(mapThreadMessages(thread, initialWelcomeMessage));
       } catch {
         if (cancelled) return;
         window.localStorage.removeItem(storageKey);
         setConversationId(null);
-        setMessages([createWelcomeMessage(card)]);
+        setMessages([initialWelcomeMessage]);
       } finally {
         if (!cancelled) {
           setIsThreadReady(true);
@@ -132,7 +204,7 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
     return () => {
       cancelled = true;
     };
-  }, [card, storageKey]);
+  }, [card, chatApi, initialWelcomeMessage, storageKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,7 +212,7 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
     async function loadThreads() {
       setIsLoadingThreads(true);
       try {
-        const threads = await fetchChatConversations(card.context.accountPid, 6);
+        const threads = await chatApi.fetchConversations(card.context.accountPid, 6);
         if (!cancelled) {
           setRecentThreads(threads);
         }
@@ -159,7 +231,7 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
     return () => {
       cancelled = true;
     };
-  }, [card.context.accountPid, conversationId, historyRefreshToken]);
+  }, [card.context.accountPid, chatApi, conversationId, historyRefreshToken]);
 
   useEffect(() => {
     conversationIdRef.current = conversationId;
@@ -201,18 +273,9 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
 
   async function loadConversationThread(threadId) {
     try {
-      const thread = await fetchChatConversation(threadId);
+      const thread = await chatApi.fetchConversation(threadId);
       setConversationId(thread.conversation_id || null);
-      setMessages(
-        (thread.messages || []).length
-          ? thread.messages.map((message) => ({
-              id: `${thread.conversation_id}-${message.created_at || message.role}-${message.role}`,
-              role: message.role,
-              content: message.content,
-              createdAt: message.created_at,
-            }))
-          : [createWelcomeMessage(card)]
-      );
+      setMessages(mapThreadMessages(thread, initialWelcomeMessage));
       setHistoryOpen(false);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to load conversation history");
@@ -221,11 +284,11 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
 
   async function handleDeleteConversation(threadId) {
     try {
-      await deleteChatConversation(threadId);
+      await chatApi.deleteConversation(threadId);
       if (threadId === conversationIdRef.current) {
         window.localStorage.removeItem(storageKey);
         setConversationId(null);
-        setMessages([createWelcomeMessage(card)]);
+        setMessages([initialWelcomeMessage]);
         setDraft("");
       }
       setHistoryRefreshToken((current) => current + 1);
@@ -250,7 +313,9 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
       id: `assistant-${Date.now()}`,
       role: "assistant",
       status: "thinking",
-      content: "Retrieving relevant card context and historical signals...",
+      content: isPlannerMode
+        ? "Reviewing planner context, budget state, and any required tool calls..."
+        : "Retrieving relevant card context and historical signals...",
       sources: [],
       actions: [],
     };
@@ -258,7 +323,7 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
     setMessages((current) => [...current, assistantMessage]);
 
     try {
-      const response = await sendChatMessage({
+      const response = await chatApi.sendMessage({
         message: text,
         conversationId: conversationIdRef.current,
         history: nextHistory,
@@ -273,10 +338,15 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
                 ...message,
                 status: "ready",
                 content: response.content,
-                sources: response.sources,
-                actions: response.actions,
+                sources: response.sources || [],
+                actions: response.actions || [],
                 facts: response.facts,
                 retrievalStrategy: response.retrieval_strategy,
+                plannerState: response.planner_state,
+                turnIntent: response.turn_intent,
+                summary: response.summary,
+                highlights: response.highlights,
+                nextAction: response.next_action,
               }
             : message
         )
@@ -289,7 +359,9 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
             ? {
                 ...message,
                 status: "ready",
-                content: "I couldn’t reach the backend chat endpoint. Make sure the FastAPI server is running on `http://127.0.0.1:8000`.",
+                content: isPlannerMode
+                  ? "I couldn’t reach the planner chat endpoint. Make sure the FastAPI server is running on `http://127.0.0.1:8000`."
+                  : "I couldn’t reach the backend chat endpoint. Make sure the FastAPI server is running on `http://127.0.0.1:8000`.",
                 sources: [],
                 actions: [],
               }
@@ -322,8 +394,8 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
     <aside className="panel chat-panel">
       <div className="panel-header">
         <div>
-          <p className="section-label">AI Copilot</p>
-          <h3>Finance chat</h3>
+          <p className="section-label">{isPlannerMode ? "Planner Agent" : "AI Copilot"}</p>
+          <h3>{isPlannerMode ? "Planner chat" : "Finance chat"}</h3>
         </div>
         <div className="chat-header-actions">
           <button className="ghost-button chat-mini-button" type="button" onClick={() => setHistoryOpen((current) => !current)}>
@@ -335,18 +407,20 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
         </div>
       </div>
 
-      <div className="chat-context compact">
-        {CONTEXT_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            className={`chat-context-chip chat-context-chip--button ${activeContextTab === tab.id ? "active" : ""}`}
-            type="button"
-            onClick={() => setActiveContextTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {!isPlannerMode ? (
+        <div className="chat-context compact">
+          {CONTEXT_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              className={`chat-context-chip chat-context-chip--button ${activeContextTab === tab.id ? "active" : ""}`}
+              type="button"
+              onClick={() => setActiveContextTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <div className="chat-context-detail">
         <strong>{activeContextDetails.title}</strong>
@@ -368,7 +442,7 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
             <div className="chat-message-head">
               <div className="chat-role">
                 <span className="chat-avatar">{message.role === "assistant" ? <Bot size={14} /> : "You"}</span>
-                <strong>{message.role === "assistant" ? "Finance Copilot" : "You"}</strong>
+                <strong>{message.role === "assistant" ? (isPlannerMode ? "Planner Agent" : "Finance Copilot") : "You"}</strong>
               </div>
               {message.status === "thinking" ? (
                 <span className="chat-status">
@@ -408,13 +482,15 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
         <textarea
           id="chatInput"
           rows="2"
-          placeholder="Ask about this card or a specific transaction..."
+          placeholder={isPlannerMode ? "Ask to create, revise, review, or approve a budget..." : "Ask about this card or a specific transaction..."}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={handleComposerKeyDown}
         />
         <div className="chat-form-footer">
-          <span className="panel-note">Responses stay tied to this card.</span>
+          <span className="panel-note">
+            {isPlannerMode ? "Planner turns stay tied to this budgeting conversation." : "Responses stay tied to this card."}
+          </span>
           <button className="primary-button" type="submit" disabled={isSending}>
             <SendHorizontal size={16} />
             Send
@@ -430,7 +506,7 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
               Close
             </button>
           </div>
-      <div className="chat-history-list">
+          <div className="chat-history-list">
             {isLoadingThreads ? (
               <p className="panel-note">Loading history...</p>
             ) : recentThreads.length ? (
@@ -458,7 +534,9 @@ function ChatPanel({ card, analysisWindow, seedMessage = "", seedMessageId = "",
                 </div>
               ))
             ) : (
-              <p className="panel-note">No saved conversations for this card yet.</p>
+              <p className="panel-note">
+                {isPlannerMode ? "No saved planner conversations for this account yet." : "No saved conversations for this card yet."}
+              </p>
             )}
           </div>
         </div>

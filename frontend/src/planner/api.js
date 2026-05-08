@@ -1,7 +1,7 @@
 import { getBackendBaseUrl, normalizeMessages } from "../api/backend";
 
-export async function sendChatMessage({ message, conversationId, history, context }) {
-  const response = await fetch(`${getBackendBaseUrl()}/api/chat`, {
+export async function sendPlannerMessage({ message, conversationId, history, context }) {
+  const response = await fetch(`${getBackendBaseUrl()}/api/planner/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -22,7 +22,7 @@ export async function sendChatMessage({ message, conversationId, history, contex
   return response.json();
 }
 
-export async function fetchChatConversation(conversationId) {
+export async function fetchPlannerConversation(conversationId) {
   if (!conversationId) {
     return null;
   }
@@ -39,7 +39,7 @@ export async function fetchChatConversation(conversationId) {
   return response.json();
 }
 
-export async function fetchChatConversations(accountPid, limit = 8) {
+export async function fetchPlannerConversations(accountPid, limit = 8) {
   const params = new URLSearchParams();
   if (accountPid) params.set("account_pid", accountPid);
   if (limit) params.set("limit", String(limit));
@@ -52,7 +52,7 @@ export async function fetchChatConversations(accountPid, limit = 8) {
   return response.json();
 }
 
-export async function deleteChatConversation(conversationId) {
+export async function deletePlannerConversation(conversationId) {
   const response = await fetch(`${getBackendBaseUrl()}/api/chat/conversations/${conversationId}`, {
     method: "DELETE",
   });

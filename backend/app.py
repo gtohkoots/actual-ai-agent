@@ -10,6 +10,7 @@ from backend.services.dashboard import DashboardOverview, list_accounts, build_d
 from backend.services.chat import ChatRequest, ChatResponse, ConversationThread, generate_chat_response
 from backend.services.conversations import delete_conversation, list_conversations, load_conversation
 from backend.services.documents import rebuild_document_store, search_documents
+from backend.services.planner_chat import PlannerChatRequest, PlannerChatResponse, generate_planner_chat_response
 
 
 def _cors_origins() -> List[str]:
@@ -45,6 +46,11 @@ def dashboard(start_date: str | None = None, end_date: str | None = None) -> Das
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
     return generate_chat_response(request)
+
+
+@app.post("/api/planner/chat", response_model=PlannerChatResponse)
+def planner_chat(request: PlannerChatRequest) -> PlannerChatResponse:
+    return generate_planner_chat_response(request)
 
 
 @app.get("/api/chat/conversations/{conversation_id}", response_model=ConversationThread)
