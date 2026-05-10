@@ -21,6 +21,13 @@ def test_generate_planner_chat_response_persists_pending_recommendation(monkeypa
             "next_action": "Review the draft and approve it when ready.",
             "used_tools": ["recommend_budget_targets"],
             "turn_intent": {"intent": "budget_recommendation"},
+            "active_budget_plan": {
+                "plan_id": "plan-existing",
+                "period_start": "2026-05-01",
+                "period_end": "2026-05-31",
+                "status": "active",
+                "targets": [{"category_name": "Bills", "target_amount": 1100.0}],
+            },
             "tool_results": {
                 "recommend_budget_targets": {
                     "period_start": "2026-05-06",
@@ -67,10 +74,12 @@ def test_generate_planner_chat_response_persists_pending_recommendation(monkeypa
 
     assert response.conversation_id == "planner-conv-1"
     assert response.planner_state["awaiting_approval"] is True
-    assert "Draft ready." in response.content
+    assert "I drafted a budget for 2026-05-06 to 2026-06-04 with planned savings of $500.00." in response.content
     assert "**Proposed Budget**" in response.content
     assert "| Bills | $1,200.00 |" in response.content
     assert "- Planned savings: $500.00" in response.content
+    assert "**Heads up**" in response.content
+    assert "replace your current active budget for 2026-05-01 to 2026-05-31" in response.content
 
     thread = load_conversation("planner-conv-1", db_path=str(tmp_path / "planner-chat.sqlite"))
     assert thread["account_pid"] == "acct-123"
@@ -78,6 +87,67 @@ def test_generate_planner_chat_response_persists_pending_recommendation(monkeypa
     assert len(thread["messages"]) == 2
     assert thread["messages"][0]["role"] == "user"
     assert thread["messages"][1]["role"] == "assistant"
+
+
+def test_generate_planner_chat_response_prefers_draft_summary_over_active_budget_narrative(monkeypatch, tmp_path):
+    monkeypatch.setenv("FINANCE_CHAT_DB_PATH", str(tmp_path / "planner-chat.sqlite"))
+
+    monkeypatch.setattr(
+        "backend.services.planner_chat.run_planner_agent_turn",
+        lambda user_message, planner_state=None, db_path=None: {
+            "summary": "The current active budget includes a savings target of $1500.",
+            "highlights": [
+                "Current active budget period: May 10, 2026 - June 08, 2026",
+                "Current savings target in active budget: $1500",
+                "User requested a new budget with a savings target of $3000",
+            ],
+            "next_action": "Review the draft and approve it when ready.",
+            "used_tools": ["recommend_budget_targets"],
+            "turn_intent": {"intent": "budget_recommendation"},
+            "active_budget_plan": {
+                "plan_id": "plan-existing",
+                "period_start": "2026-05-10",
+                "period_end": "2026-06-08",
+                "status": "active",
+            },
+            "tool_results": {
+                "recommend_budget_targets": {
+                    "period_start": "2026-05-01",
+                    "period_end": "2026-06-01",
+                    "planned_savings": 3000.0,
+                    "total_budgeted_spend": 0.0,
+                    "buffer_remaining": -3000.0,
+                    "category_targets": [],
+                }
+            },
+            "updated_planner_state": {
+                "assistant_mode": "planner",
+                "awaiting_approval": True,
+                "pending_recommendation": {
+                    "period_start": "2026-05-01",
+                    "period_end": "2026-06-01",
+                    "planned_savings": 3000.0,
+                    "category_targets": [],
+                },
+                "last_create_payload": None,
+                "latest_saved_plan": None,
+            },
+        },
+    )
+
+    response = generate_planner_chat_response(
+        PlannerChatRequest(
+            message="Create a budget starting from May 01 2026 to June 01 2026 and save $3000",
+            conversation_id="planner-conv-mixed",
+            context={"account_pid": "acct-123", "selected_tab": "budget"},
+        )
+    )
+
+    assert "I drafted a budget for 2026-05-01 to 2026-06-01 with planned savings of $3,000.00." in response.content
+    assert "Current active budget period" not in response.content
+    assert "Current savings target in active budget" not in response.content
+    assert "- Planned savings: $3,000.00" in response.content
+    assert "replace your current active budget for 2026-05-10 to 2026-06-08" in response.content
 
 
 def test_generate_planner_chat_response_loads_existing_planner_state_for_follow_up(monkeypatch, tmp_path):

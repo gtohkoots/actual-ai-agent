@@ -147,3 +147,71 @@ def test_interpret_planner_turn_intent_defaults_tools_when_model_returns_unsuppo
 
     assert result["intent"] == "budget_revision"
     assert result["allowed_tools"] == ["revise_budget_recommendation"]
+
+
+def test_interpret_budget_request_parameters_uses_fallback_without_api_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        planner_llm,
+        "date",
+        type(
+            "FakeDate",
+            (),
+            {
+                "today": staticmethod(lambda: __import__("datetime").date(2026, 5, 10)),
+                "fromisoformat": staticmethod(__import__("datetime").date.fromisoformat),
+            },
+        ),
+    )
+
+    result = planner_llm.interpret_budget_request_parameters(
+        "Create a budget starting today for a month and save $500",
+    )
+
+    assert result["period_start"] == "2026-05-10"
+    assert result["period_end"] == "2026-06-08"
+    assert result["savings_target"] == 500.0
+
+
+def test_interpret_budget_request_parameters_supports_explicit_iso_range_without_api_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    result = planner_llm.interpret_budget_request_parameters(
+        "Create a budget from 2026-04-01 to 2026-04-30 and save $700",
+    )
+
+    assert result["period_start"] == "2026-04-01"
+    assert result["period_end"] == "2026-04-30"
+    assert result["savings_target"] == 700.0
+
+
+def test_interpret_budget_request_parameters_parses_model_payload(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class FakeResponse:
+        content = """
+        {
+          "period_start": "2026-04-01",
+          "period_end": "2026-04-30",
+          "savings_target": 650,
+          "notes": "User asked for April."
+        }
+        """
+
+    class FakeChatOpenAI:
+        def __init__(self, model: str, temperature: int):
+            self.model = model
+            self.temperature = temperature
+
+        def invoke(self, messages):
+            return FakeResponse()
+
+    monkeypatch.setattr(planner_llm, "ChatOpenAI", FakeChatOpenAI)
+
+    result = planner_llm.interpret_budget_request_parameters(
+        "Create a budget for April 2026 and save $650",
+    )
+
+    assert result["period_start"] == "2026-04-01"
+    assert result["period_end"] == "2026-04-30"
+    assert result["savings_target"] == 650.0

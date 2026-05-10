@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, CreditCard, LayoutDashboard, MessageCircle, PiggyBank, TrendingUp } from "lucide-react";
 import { DayPicker } from "react-day-picker";
 import { startOfMonth, subDays } from "date-fns";
@@ -13,6 +13,7 @@ import {
 
 import ChatPanel from "./components/ChatPanel";
 import { fetchAccounts, fetchDashboardOverview } from "./api/dashboard";
+import { fetchPlannerOverview } from "./planner/api";
 
 const railNavItems = [
   { label: "Overview", icon: LayoutDashboard, tab: "Overview" },
@@ -164,6 +165,17 @@ function LoadingState() {
   );
 }
 
+function formatBudgetPeriod(periodStart, periodEnd) {
+  if (!periodStart || !periodEnd) return "No active budget";
+  return `${periodStart} to ${periodEnd}`;
+}
+
+function getBudgetCategoryTone(status) {
+  if (status === "overspent") return "is-danger";
+  if (status === "at_risk") return "is-warning";
+  return "is-good";
+}
+
 function App() {
   const [accountsMeta, setAccountsMeta] = useState([]);
   const [dashboard, setDashboard] = useState(null);
@@ -176,8 +188,12 @@ function App() {
   const [windowPickerOpen, setWindowPickerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false);
+  const [plannerOverview, setPlannerOverview] = useState(null);
+  const [isLoadingPlannerOverview, setIsLoadingPlannerOverview] = useState(false);
+  const [plannerOverviewError, setPlannerOverviewError] = useState("");
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [error, setError] = useState("");
+  const [plannerOverviewRefreshToken, setPlannerOverviewRefreshToken] = useState(0);
   const hasLoadedDashboardRef = useRef(false);
 
   const selectedWindow = useMemo(
@@ -279,6 +295,36 @@ function App() {
   const isBudgetingTab = activeTab === "Budgeting Goals" || activeTab === "Budgeting Plan";
   const spendPieColors = ["#1f5c4d", "#aa7d2d", "#a04b2f", "#5a3d18", "#1b2c55"];
   const incomePieColors = ["#214d73", "#4d7ba3", "#7d5ba6", "#5a3d18", "#1f5c4d"];
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPlannerOverview() {
+      if (!isBudgetingTab) return;
+      setIsLoadingPlannerOverview(true);
+      setPlannerOverviewError("");
+      try {
+        const overview = await fetchPlannerOverview();
+        if (!cancelled) {
+          setPlannerOverview(overview);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setPlannerOverviewError(err instanceof Error ? err.message : "Failed to load planner overview");
+          setPlannerOverview(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingPlannerOverview(false);
+        }
+      }
+    }
+
+    void loadPlannerOverview();
+    return () => {
+      cancelled = true;
+    };
+  }, [isBudgetingTab, plannerOverviewRefreshToken]);
   const stats = selectedCard
     ? [
         { label: "Current Balance", value: currency(selectedCard.balanceCurrent), note: selectedCard.deltaText },
@@ -343,6 +389,19 @@ function App() {
   function clearAssistantSeed() {
     setAssistantSeed(null);
   }
+
+  const handlePlannerStateChange = useCallback((nextPlannerState) => {
+    if (!nextPlannerState) {
+      return;
+    }
+
+    const savedPlan = nextPlannerState.latest_saved_plan || nextPlannerState.last_create_payload;
+    if (!savedPlan) {
+      return;
+    }
+
+    setPlannerOverviewRefreshToken((current) => current + 1);
+  }, []);
 
   function renderOverviewTab() {
     const incomeRaw = portfolio.summary?.totalIncome;
@@ -724,64 +783,189 @@ function App() {
 
   function renderBudgetingTab() {
     const isGoalsView = activeTab === "Budgeting Goals";
+    const activePlan = plannerOverview?.active_plan || {};
+    const currentStatus = plannerOverview?.current_status || {};
+    const budgetSummary = currentStatus.summary || {};
+    const categoryStatuses = currentStatus.categories || [];
+    const hasActivePlan = activePlan.status !== "missing" && currentStatus.status !== "missing";
+    const overspentCategories = categoryStatuses.filter((item) => item.status === "overspent");
+    const atRiskCategories = categoryStatuses.filter((item) => item.status === "at_risk");
+    const onTrackCount = categoryStatuses.filter((item) => item.status === "on_track").length;
+    const savingsStatus = categoryStatuses.find((item) => item.category_name === "Savings") || null;
+
     return (
       <>
-        <section className="stats-grid">
-          <article className="stat-card">
-            <p className="section-label">Mode</p>
-            <h3>{isGoalsView ? "Goals" : "Plan"}</h3>
-            <p>{isGoalsView ? "Define saving targets and timelines." : "Map monthly actions and checkpoints."}</p>
-          </article>
-          <article className="stat-card">
-            <p className="section-label">Window</p>
-            <h3>{selectedWindow.label}</h3>
-            <p>Reference period used for budgeting context.</p>
-          </article>
-          <article className="stat-card">
-            <p className="section-label">Starting Point</p>
-            <h3>{currency(portfolio.summary?.totalBalance || 0)}</h3>
-            <p>Portfolio balance available for planning decisions.</p>
-          </article>
-          <article className="stat-card">
-            <p className="section-label">Next Step</p>
-            <h3>{isGoalsView ? "Set targets" : "Assign monthly budgets"}</h3>
-            <p>{isGoalsView ? "Pick short and long-term goal amounts." : "Distribute targets by category and month."}</p>
+        <section className="budgeting-overview-band">
+          <article className="panel budgeting-overview-card">
+            <div className="panel-header">
+              <div>
+                <p className="section-label">Active Budget Plan</p>
+                <h3>{hasActivePlan ? "Live plan visibility" : "No active budget yet"}</h3>
+              </div>
+              {hasActivePlan ? (
+                <span className="budget-pill">{formatBudgetPeriod(activePlan.period_start, activePlan.period_end)}</span>
+              ) : null}
+            </div>
+
+            {plannerOverviewError ? (
+              <div className="chat-error chat-error--compact" role="alert">
+                {plannerOverviewError}
+              </div>
+            ) : isLoadingPlannerOverview ? (
+              <p className="panel-note">Loading the active plan and live budget status...</p>
+            ) : hasActivePlan ? (
+              <>
+                <p className="panel-note">
+                  The Budgeting tab now keeps the saved plan visible while you talk to the planner agent, so it’s easy to compare the active budget against any proposed draft.
+                </p>
+                <div className="budgeting-overview-metrics">
+                  <div className="mini-stat-card__col">
+                    <span className="mini-stat-card__label">Spend So Far</span>
+                    <strong>{currency(budgetSummary.total_actual || 0)}</strong>
+                  </div>
+                  <div className="mini-stat-card__col">
+                    <span className="mini-stat-card__label">Budget Left</span>
+                    <strong>{currency(budgetSummary.total_remaining || 0)}</strong>
+                  </div>
+                  <div className="mini-stat-card__col">
+                    <span className="mini-stat-card__label">Budget Limit</span>
+                    <strong>{currency(budgetSummary.total_target || 0)}</strong>
+                  </div>
+                  <div className="mini-stat-card__col">
+                    <span className="mini-stat-card__label">Utilization</span>
+                    <strong>{Number(budgetSummary.utilization_pct || 0).toFixed(1)}%</strong>
+                  </div>
+                  <div className="mini-stat-card__col">
+                    <span className="mini-stat-card__label">Savings Progress</span>
+                    <strong>
+                      {savingsStatus ? currency(savingsStatus.actual_amount) : "Not tracked"}
+                    </strong>
+                    <p className="budgeting-overview-metric-note">
+                      {savingsStatus
+                        ? `${currency(savingsStatus.target_amount)} target · ${currency(savingsStatus.remaining_amount)} remaining`
+                        : "Add a Savings target to track progress here."}
+                    </p>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="panel-note">
+                There isn’t an active budget plan yet. Use the planner chat to create a draft, revise it if needed, and approve it to save the first active budget.
+              </p>
+            )}
           </article>
         </section>
 
         <section className="budgeting-stage">
-          <article className="panel budgeting-workspace-card">
-            <div className="panel-header">
-              <div>
-                <p className="section-label">Budgeting Workspace</p>
-                <h3>{isGoalsView ? "Goal definition" : "Execution plan"}</h3>
+          <div className="budgeting-active-plan-stack">
+            {!isGoalsView ? (
+              <article className="panel budgeting-workspace-card">
+                <div className="panel-header">
+                  <div>
+                    <p className="section-label">Budgeting Workspace</p>
+                    <h3>Execution plan</h3>
+                  </div>
+                </div>
+                <p className="panel-note">
+                  Use the planner chat to turn this window into a working monthly budget, revise category targets, and save the plan once you approve it.
+                </p>
+                <div className="merchant-list">
+                  <div className="merchant-row">
+                    <span>Ask for a fresh draft</span>
+                    <strong>Create a one-month budget</strong>
+                  </div>
+                  <div className="merchant-row">
+                    <span>Revise the proposal</span>
+                    <strong>Raise, lower, or protect categories</strong>
+                  </div>
+                  <div className="merchant-row">
+                    <span>Finalize when ready</span>
+                    <strong>Approve the budget to save it</strong>
+                  </div>
+                </div>
+              </article>
+            ) : null}
+
+            <article className="panel budgeting-targets-card">
+              <div className="panel-header">
+                <div>
+                  <p className="section-label">Active Plan Detail</p>
+                  <h3>{hasActivePlan ? "Category targets and live status" : "Waiting for first saved plan"}</h3>
+                </div>
               </div>
-            </div>
-            <p className="panel-note">
-              {isGoalsView
-                ? "Use the planner chat to draft a savings-aware budget, compare recent spending, and reshape the plan until the targets feel realistic."
-                : "Use the planner chat to turn this window into a working monthly budget, revise category targets, and save the plan once you approve it."}
-            </p>
-            <div className="merchant-list">
-              <div className="merchant-row">
-                <span>Ask for a fresh draft</span>
-                <strong>Create a one-month budget</strong>
+
+              {hasActivePlan ? (
+                <div className="budget-target-list">
+                  {categoryStatuses.map((item) => (
+                    <div key={item.category_name} className="budget-target-row">
+                      <div className="budget-target-row-head">
+                        <strong>{item.category_name}</strong>
+                        <span className={`budget-status-pill ${getBudgetCategoryTone(item.status)}`}>
+                          {item.status.replace("_", " ")}
+                        </span>
+                      </div>
+                      <div className="budget-target-row-metrics">
+                        <span>Target {currency(item.target_amount)}</span>
+                        <span>Spent {currency(item.actual_amount)}</span>
+                        <span>Remaining {currency(item.remaining_amount)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="panel-note">
+                  Once a budget is approved, its category targets and live spend status will appear here for quick reference.
+                </p>
+              )}
+            </article>
+
+            <article className="panel budgeting-health-card">
+              <div className="panel-header">
+                <div>
+                  <p className="section-label">Plan Health</p>
+                  <h3>{hasActivePlan ? "What needs attention" : "Planner guidance"}</h3>
+                </div>
               </div>
-              <div className="merchant-row">
-                <span>Revise the proposal</span>
-                <strong>Raise, lower, or protect categories</strong>
-              </div>
-              <div className="merchant-row">
-                <span>Finalize when ready</span>
-                <strong>Approve the budget to save it</strong>
-              </div>
-            </div>
-          </article>
+              {hasActivePlan ? (
+                <div className="merchant-list">
+                  <div className="merchant-row">
+                    <span>Overspent categories</span>
+                    <strong>{overspentCategories.length}</strong>
+                  </div>
+                  <div className="merchant-row">
+                    <span>At-risk categories</span>
+                    <strong>{atRiskCategories.length}</strong>
+                  </div>
+                  <div className="merchant-row">
+                    <span>On-track categories</span>
+                    <strong>{onTrackCount}</strong>
+                  </div>
+                </div>
+              ) : (
+                <div className="merchant-list">
+                  <div className="merchant-row">
+                    <span>Best first step</span>
+                    <strong>Create a new draft</strong>
+                  </div>
+                  <div className="merchant-row">
+                    <span>Then</span>
+                    <strong>Revise until the targets feel realistic</strong>
+                  </div>
+                  <div className="merchant-row">
+                    <span>Finally</span>
+                    <strong>Approve to activate the plan</strong>
+                  </div>
+                </div>
+              )}
+            </article>
+
+          </div>
 
           <ChatPanel
             card={selectedCard}
             analysisWindow={selectedWindow}
             mode="planner"
+            onPlannerStateChange={handlePlannerStateChange}
           />
         </section>
       </>

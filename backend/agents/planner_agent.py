@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-import re
 from datetime import date, timedelta
 from typing import Any, Optional
 
-from backend.agents.llm import generate_planner_response, interpret_planner_turn_intent
+from backend.agents.llm import (
+    generate_planner_response,
+    interpret_budget_request_parameters,
+    interpret_planner_turn_intent,
+)
 from backend.agents.mcp_client import call_tool_payload, get_multiple_resource_payloads
 from backend.agents.prompts import build_planner_prompt_context
 from backend.agents.planner_state import PlannerAgentState
@@ -41,8 +44,23 @@ def run_planner_agent_turn(
     state.turn_intent = interpret_planner_turn_intent(
         user_message,
         has_pending_recommendation=bool(state.planner_state.get("pending_recommendation")),
-    )
+    ) or {"intent": "budget_review", "allowed_tools": [], "confidence": 0.0, "notes": "Fallback intent."}
     review_mode = state.turn_intent.get("intent", "budget_review")
+    active_plan_revision_seed = None
+    if (
+        review_mode in {"budget_review", "budget_revision"}
+        and not state.planner_state.get("pending_recommendation")
+        and _should_revise_active_budget(user_message, active_plan)
+    ):
+        active_plan_revision_seed = _recommendation_from_active_plan(active_plan)
+        review_mode = "budget_revision"
+        state.turn_intent = {
+            "intent": "budget_revision",
+            "confidence": max(float(state.turn_intent.get("confidence", 0.0)), 0.9),
+            "needs_pending_recommendation": True,
+            "allowed_tools": ["revise_budget_recommendation"],
+            "notes": "The user is revising the current active budget.",
+        }
     if review_mode == "historical_review":
         state.tool_results = _load_historical_tool_results(
             user_message,
@@ -62,7 +80,8 @@ def run_planner_agent_turn(
             state.tool_results.get("recommend_budget_targets"),
         )
     elif review_mode == "budget_revision":
-        if not state.planner_state.get("pending_recommendation"):
+        pending_recommendation = state.planner_state.get("pending_recommendation") or active_plan_revision_seed
+        if not pending_recommendation:
             state.model_response = _missing_pending_recommendation_response("revise")
             state.summary = state.model_response["summary"]
             state.highlights = state.model_response["highlights"]
@@ -70,7 +89,7 @@ def run_planner_agent_turn(
             return _serialize_state(state)
         state.tool_results = _load_budget_revision_tool_results(
             user_message,
-            pending_recommendation=state.planner_state["pending_recommendation"],
+            pending_recommendation=pending_recommendation,
             allowed_tools=state.turn_intent.get("allowed_tools", []),
             db_path=db_path,
         )
@@ -275,14 +294,13 @@ def _load_budget_recommendation_tool_results(
     db_path: Optional[str] = None,
 ) -> dict[str, Any]:
     """Load the recommendation tool payload for budget-creation style requests."""
-    period_start, period_end = _resolve_budget_recommendation_window(user_message)
-    savings_target = _extract_savings_target(user_message)
+    request_parameters = _resolve_budget_recommendation_parameters(user_message)
     tool_arguments = {
         "recommend_budget_targets": {
-            "period_start": period_start,
-            "period_end": period_end,
+            "period_start": request_parameters["period_start"],
+            "period_end": request_parameters["period_end"],
             "history_periods": 3,
-            "savings_target": savings_target,
+            "savings_target": request_parameters["savings_target"],
         }
     }
     allowed_argument_map = _filter_allowed_tool_arguments(
@@ -351,27 +369,96 @@ def _load_budget_approval_tool_results(
     }
 
 
-def _resolve_budget_recommendation_window(user_message: str) -> tuple[str, str]:
-    """Resolve a narrow set of supported budget recommendation windows."""
+def _resolve_budget_recommendation_parameters(user_message: str) -> dict[str, Any]:
+    """Interpret and validate budget recommendation parameters from a natural-language request."""
+    request_parameters = interpret_budget_request_parameters(user_message)
+    period_start = str(request_parameters.get("period_start", "")).strip()
+    period_end = str(request_parameters.get("period_end", "")).strip()
+    if not period_start or not period_end:
+        raise ValueError("Budget recommendation requires non-empty period_start and period_end.")
+
+    start = date.fromisoformat(period_start)
+    end = date.fromisoformat(period_end)
+    if start > end:
+        raise ValueError("Budget recommendation period_start cannot be after period_end.")
+
+    savings_target = request_parameters.get("savings_target")
+    if savings_target is not None:
+        savings_target = round(float(savings_target), 2)
+        if savings_target < 0:
+            raise ValueError("Budget recommendation savings_target cannot be negative.")
+
+    return {
+        "period_start": start.isoformat(),
+        "period_end": end.isoformat(),
+        "savings_target": savings_target,
+    }
+
+
+def _should_revise_active_budget(user_message: str, active_plan: dict[str, Any]) -> bool:
+    """Return whether the user is asking to revise the current active budget in place."""
+    if not active_plan or active_plan.get("status") == "missing":
+        return False
+
     normalized = user_message.strip().lower()
-    today = date.today()
-    if "starting today" in normalized and "month" in normalized:
-        end = today + timedelta(days=29)
-        return today.isoformat(), end.isoformat()
-    if "next month" in normalized:
-        next_month_start = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
-        next_month_end = ((next_month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1))
-        return next_month_start.isoformat(), next_month_end.isoformat()
-    end = today + timedelta(days=29)
-    return today.isoformat(), end.isoformat()
+    budget_reference_markers = [
+        "current budget",
+        "active budget",
+        "my budget",
+    ]
+    revision_markers = [
+        "update",
+        "revise",
+        "adjust",
+        "change",
+        "increase ",
+        "decrease ",
+        "reduce ",
+        "raise ",
+        "lower ",
+        "don't touch",
+        "do not touch",
+        "keep ",
+        "instead",
+    ]
+    return any(marker in normalized for marker in budget_reference_markers) and any(
+        marker in normalized for marker in revision_markers
+    )
 
 
-def _extract_savings_target(user_message: str) -> float | None:
-    """Extract a simple savings target like 'save $500' from the user message."""
-    match = re.search(r"save\s+\$?(\d+(?:\.\d+)?)", user_message.lower())
-    if not match:
-        return None
-    return round(float(match.group(1)), 2)
+def _recommendation_from_active_plan(active_plan: dict[str, Any]) -> dict[str, Any]:
+    """Convert the current active saved budget into a revise-compatible recommendation payload."""
+    targets = list(active_plan.get("targets", []) or [])
+    savings_target = 0.0
+    category_targets: list[dict[str, Any]] = []
+    for item in targets:
+        category_name = str(item.get("category_name", "")).strip()
+        if not category_name:
+            continue
+        target_amount = round(float(item.get("target_amount", 0.0)), 2)
+        if category_name == "Savings":
+            savings_target = target_amount
+            continue
+        category_targets.append(
+            {
+                "category_name": category_name,
+                "recommended_target": target_amount,
+                "baseline_amount": target_amount,
+            }
+        )
+
+    total_budgeted_spend = round(sum(item["recommended_target"] for item in category_targets), 2)
+    return {
+        "period_start": str(active_plan.get("period_start", "")).strip(),
+        "period_end": str(active_plan.get("period_end", "")).strip(),
+        "planned_savings": savings_target,
+        "total_budgeted_spend": total_budgeted_spend,
+        "category_targets": category_targets,
+        "assumptions": {
+            "history_periods": 3,
+            "source": "active_budget_plan",
+        },
+    }
 
 
 def _previous_matching_window(period_start: str, period_end: str) -> tuple[str, str]:

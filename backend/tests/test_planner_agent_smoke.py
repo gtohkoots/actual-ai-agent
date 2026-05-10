@@ -241,6 +241,16 @@ def test_run_planner_agent_calls_budget_recommendation_tool(monkeypatch):
     )
     monkeypatch.setattr(
         planner_agent,
+        "interpret_budget_request_parameters",
+        lambda user_message: {
+            "period_start": "2026-04-28",
+            "period_end": "2026-05-27",
+            "savings_target": 500.0,
+            "notes": "Structured recommendation request.",
+        },
+    )
+    monkeypatch.setattr(
+        planner_agent,
         "generate_planner_response",
         lambda prompt_context: {
             "summary": "Here is a one-month budget recommendation starting today with savings reserved first.",
@@ -266,6 +276,8 @@ def test_run_planner_agent_calls_budget_recommendation_tool(monkeypatch):
     assert result["used_tools"] == ["recommend_budget_targets"]
     assert result["prompt_context"]["review_mode"] == "budget_recommendation"
     assert tool_calls[0][0] == "recommend_budget_targets"
+    assert tool_calls[0][1]["period_start"] == "2026-04-28"
+    assert tool_calls[0][1]["period_end"] == "2026-05-27"
     assert tool_calls[0][1]["savings_target"] == 500.0
     assert "one-month budget recommendation" in result["summary"]
 

@@ -1,5 +1,14 @@
 import { getBackendBaseUrl, normalizeMessages } from "../api/backend";
 
+export async function fetchPlannerOverview() {
+  const response = await fetch(`${getBackendBaseUrl()}/api/planner/overview`);
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Request failed with status ${response.status}`);
+  }
+  return response.json();
+}
+
 export async function sendPlannerMessage({ message, conversationId, history, context }) {
   const response = await fetch(`${getBackendBaseUrl()}/api/planner/chat`, {
     method: "POST",

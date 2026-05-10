@@ -11,6 +11,7 @@ from backend.services.chat import ChatRequest, ChatResponse, ConversationThread,
 from backend.services.conversations import delete_conversation, list_conversations, load_conversation
 from backend.services.documents import rebuild_document_store, search_documents
 from backend.services.planner_chat import PlannerChatRequest, PlannerChatResponse, generate_planner_chat_response
+from backend.services.planner_overview import PlannerOverviewResponse, generate_planner_overview
 
 
 def _cors_origins() -> List[str]:
@@ -51,6 +52,11 @@ def chat(request: ChatRequest) -> ChatResponse:
 @app.post("/api/planner/chat", response_model=PlannerChatResponse)
 def planner_chat(request: PlannerChatRequest) -> PlannerChatResponse:
     return generate_planner_chat_response(request)
+
+
+@app.get("/api/planner/overview", response_model=PlannerOverviewResponse)
+def planner_overview() -> PlannerOverviewResponse:
+    return generate_planner_overview()
 
 
 @app.get("/api/chat/conversations/{conversation_id}", response_model=ConversationThread)

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from datetime import date, timedelta
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -38,6 +40,26 @@ Rules:
   - budget_recommendation: recommend_budget_targets
   - budget_revision: revise_budget_recommendation
   - budget_approval: prepare_budget_plan_from_recommendation, create_budget_plan
+""".strip()
+
+
+BUDGET_REQUEST_SYSTEM_PROMPT = """
+You are a structured interpreter for finance budget requests.
+Extract budget request parameters from the user's message.
+
+Return valid JSON only with keys:
+- period_start
+- period_end
+- savings_target
+- notes
+
+Rules:
+- period_start and period_end must be ISO dates in YYYY-MM-DD format.
+- If the user gives an explicit date range, preserve it.
+- If the user asks for "starting today for a month", use today through 29 days later.
+- If the user asks for "next month", use the next full calendar month.
+- savings_target must be a number when the user asks to save a specific amount, otherwise null.
+- notes should briefly describe the interpretation.
 """.strip()
 
 
@@ -147,6 +169,31 @@ def interpret_planner_turn_intent(
         return _fallback_turn_intent(user_message, has_pending_recommendation=has_pending_recommendation)
 
 
+def interpret_budget_request_parameters(user_message: str) -> dict[str, Any]:
+    """Interpret a budget-creation request into structured recommendation parameters."""
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        return _fallback_budget_request_parameters(user_message)
+
+    llm = ChatOpenAI(
+        model=os.getenv("FINANCE_PLANNER_AGENT_MODEL", os.getenv("FINANCE_CHAT_MODEL", "gpt-4o-mini")),
+        temperature=0,
+    )
+
+    try:
+        response = llm.invoke(
+            [
+                SystemMessage(content=BUDGET_REQUEST_SYSTEM_PROMPT),
+                HumanMessage(content=json.dumps({"user_message": user_message}, ensure_ascii=False, indent=2)),
+            ]
+        )
+        parsed = _parse_model_payload(response.content)
+        print(f"Raw model output for budget request parameters: {response.content}")
+        return _normalize_budget_request_parameters(parsed, user_message)
+    except Exception:
+        return _fallback_budget_request_parameters(user_message)
+
+
 def _parse_model_payload(raw: Any) -> dict[str, Any]:
     """Parse JSON-only model output, tolerating fenced code blocks."""
     text = str(raw).strip()
@@ -193,6 +240,87 @@ def _normalize_turn_intent(
     if normalized["needs_pending_recommendation"] and not has_pending_recommendation:
         return _fallback_turn_intent(user_message, has_pending_recommendation=has_pending_recommendation)
     return normalized
+
+
+def _normalize_budget_request_parameters(payload: dict[str, Any], user_message: str) -> dict[str, Any]:
+    """Normalize model-produced budget request parameters into a stable shape."""
+    period_start = str(payload.get("period_start", "")).strip()
+    period_end = str(payload.get("period_end", "")).strip()
+    if not _is_iso_date(period_start) or not _is_iso_date(period_end):
+        return _fallback_budget_request_parameters(user_message)
+
+    try:
+        start = date.fromisoformat(period_start)
+        end = date.fromisoformat(period_end)
+    except ValueError:
+        return _fallback_budget_request_parameters(user_message)
+
+    if start > end:
+        return _fallback_budget_request_parameters(user_message)
+
+    savings_target = payload.get("savings_target")
+    normalized_savings_target = None
+    if savings_target is not None:
+        try:
+            normalized_savings_target = round(float(savings_target), 2)
+        except (TypeError, ValueError):
+            return _fallback_budget_request_parameters(user_message)
+        if normalized_savings_target < 0:
+            return _fallback_budget_request_parameters(user_message)
+
+    return {
+        "period_start": period_start,
+        "period_end": period_end,
+        "savings_target": normalized_savings_target,
+        "notes": str(payload.get("notes", "")).strip(),
+    }
+
+
+def _is_iso_date(value: str) -> bool:
+    """Return whether the string is a strict ISO date."""
+    return bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", value))
+
+
+def _fallback_budget_request_parameters(user_message: str) -> dict[str, Any]:
+    """Provide deterministic parsing for common budget request date and savings phrases."""
+    normalized = user_message.strip().lower()
+    today = date.today()
+
+    explicit_range = re.search(
+        r"from\s+(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})",
+        normalized,
+    )
+    if explicit_range:
+        period_start = explicit_range.group(1)
+        period_end = explicit_range.group(2)
+    else:
+        explicit_start = re.search(r"start(?:ing)?\s+(?:on\s+)?(\d{4}-\d{2}-\d{2})", normalized)
+        if explicit_start and "month" in normalized:
+            start = date.fromisoformat(explicit_start.group(1))
+            end = start + timedelta(days=29)
+            period_start = start.isoformat()
+            period_end = end.isoformat()
+        elif "starting today" in normalized and "month" in normalized:
+            period_start = today.isoformat()
+            period_end = (today + timedelta(days=29)).isoformat()
+        elif "next month" in normalized:
+            next_month_start = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
+            next_month_end = ((next_month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1))
+            period_start = next_month_start.isoformat()
+            period_end = next_month_end.isoformat()
+        else:
+            period_start = today.isoformat()
+            period_end = (today + timedelta(days=29)).isoformat()
+
+    savings_match = re.search(r"save\s+\$?(\d+(?:\.\d+)?)", normalized)
+    savings_target = round(float(savings_match.group(1)), 2) if savings_match else None
+
+    return {
+        "period_start": period_start,
+        "period_end": period_end,
+        "savings_target": savings_target,
+        "notes": "Deterministic fallback interpretation of the budget request.",
+    }
 
 
 def _canonical_allowed_tools(intent: str, raw_allowed_tools: Any) -> list[str]:

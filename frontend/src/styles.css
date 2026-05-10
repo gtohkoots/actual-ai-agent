@@ -645,6 +645,39 @@ button {
   grid-template-columns: 1.15fr 0.85fr;
 }
 
+.budgeting-overview-band {
+  margin-top: 22px;
+}
+
+.budgeting-overview-card {
+  display: grid;
+  gap: 14px;
+}
+
+.budget-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: rgba(31, 92, 77, 0.1);
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.budgeting-overview-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.budgeting-overview-metric-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
 .budgeting-stage {
   display: grid;
   grid-template-columns: 0.82fr 1.18fr;
@@ -653,8 +686,74 @@ button {
   margin-top: 22px;
 }
 
+.budgeting-active-plan-stack {
+  display: grid;
+  gap: 18px;
+}
+
 .budgeting-workspace-card {
   min-height: 100%;
+}
+
+.budgeting-targets-card,
+.budgeting-health-card {
+  display: grid;
+  gap: 12px;
+}
+
+.budget-target-list {
+  display: grid;
+  gap: 10px;
+}
+
+.budget-target-row {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.budget-target-row-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.budget-target-row-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.budget-status-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.budget-status-pill.is-good {
+  background: rgba(31, 92, 77, 0.12);
+  color: var(--accent);
+}
+
+.budget-status-pill.is-warning {
+  background: rgba(170, 125, 45, 0.14);
+  color: var(--gold);
+}
+
+.budget-status-pill.is-danger {
+  background: rgba(160, 75, 47, 0.14);
+  color: var(--danger);
 }
 
 .overview-focus-grid {
@@ -1102,6 +1201,93 @@ th {
   gap: 8px;
 }
 
+.planner-state-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(31, 92, 77, 0.16);
+  background:
+    radial-gradient(circle at top right, rgba(31, 92, 77, 0.08), transparent 32%),
+    rgba(255, 255, 255, 0.76);
+}
+
+.planner-state-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.planner-state-header strong {
+  font-size: 1rem;
+}
+
+.planner-state-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: rgba(31, 92, 77, 0.1);
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.planner-state-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.planner-state-metric {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(27, 26, 23, 0.08);
+}
+
+.planner-state-metric span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.planner-state-metric strong {
+  font-size: 1rem;
+}
+
+.planner-state-targets {
+  display: grid;
+  gap: 8px;
+}
+
+.planner-state-target-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.64);
+  border: 1px solid rgba(27, 26, 23, 0.08);
+}
+
+.planner-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.planner-state-action--primary {
+  background: rgba(31, 92, 77, 0.12);
+  border-color: rgba(31, 92, 77, 0.18);
+  color: var(--accent);
+}
+
 .chat-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -1379,6 +1565,7 @@ textarea {
 }
 
 .chat-context-detail,
+.planner-state-card,
 .chat-slim-prompts,
 .chat-context-chip,
 .chat-actions,
@@ -1491,6 +1678,7 @@ textarea {
   .overview-secondary-grid,
   .overview-grid,
   .dashboard-grid,
+  .budgeting-overview-metrics,
   .budgeting-stage,
   .transactions-and-chat {
     grid-template-columns: 1fr;
@@ -1549,6 +1737,16 @@ textarea {
     position: static;
     width: 100%;
     max-height: none;
+  }
+
+  .planner-state-header,
+  .planner-state-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .planner-state-metrics {
+    grid-template-columns: 1fr;
   }
 
   .assistant-launcher {

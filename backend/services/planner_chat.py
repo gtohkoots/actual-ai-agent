@@ -83,21 +83,116 @@ def generate_planner_chat_response(request: PlannerChatRequest) -> PlannerChatRe
 
 def _render_planner_chat_content(turn_result: dict[str, Any]) -> str:
     """Render a frontend-friendly markdown reply from a planner turn result."""
-    summary = str(turn_result.get("summary", "")).strip()
-    highlights = [str(item).strip() for item in turn_result.get("highlights", []) if str(item).strip()]
+    summary = _render_turn_summary(turn_result)
+    highlights = _filtered_highlights(turn_result)
     next_action = str(turn_result.get("next_action", "")).strip()
     plan_details = _render_budget_plan_details(turn_result)
+    overwrite_warning = _render_active_budget_overwrite_warning(turn_result)
 
     sections: list[str] = []
     if summary:
         sections.append(summary)
     if plan_details:
         sections.append(plan_details)
+    if overwrite_warning:
+        sections.append(overwrite_warning)
     if highlights:
         sections.append("**Highlights**\n" + "\n".join(f"- {item}" for item in highlights))
     if next_action:
         sections.append(f"**Next**\n{next_action}")
     return "\n\n".join(sections) if sections else "No planner response was generated."
+
+
+def _render_turn_summary(turn_result: dict[str, Any]) -> str:
+    """Prefer deterministic summaries for draft/save turns to avoid mixing active-plan context."""
+    turn_intent = dict(turn_result.get("turn_intent", {}))
+    intent = str(turn_intent.get("intent", "")).strip()
+    tool_results = dict(turn_result.get("tool_results", {}))
+    planner_state = dict(turn_result.get("updated_planner_state", turn_result.get("planner_state", {})) or {})
+
+    if intent == "budget_recommendation":
+        plan = dict(
+            tool_results.get("recommend_budget_targets")
+            or planner_state.get("pending_recommendation")
+            or {}
+        )
+        return _render_recommendation_summary(plan, verb="drafted")
+
+    if intent == "budget_revision":
+        plan = dict(
+            tool_results.get("revise_budget_recommendation")
+            or planner_state.get("pending_recommendation")
+            or {}
+        )
+        return _render_recommendation_summary(plan, verb="updated")
+
+    return str(turn_result.get("summary", "")).strip()
+
+
+def _render_recommendation_summary(plan: dict[str, Any], *, verb: str) -> str:
+    """Render a concise deterministic summary for a proposed budget draft."""
+    if not plan:
+        return ""
+
+    period_start = str(plan.get("period_start", "")).strip()
+    period_end = str(plan.get("period_end", "")).strip()
+    planned_savings = plan.get("planned_savings")
+    savings_text = (
+        f" with planned savings of {_format_currency(planned_savings)}"
+        if isinstance(planned_savings, (int, float))
+        else ""
+    )
+    subject = "a budget" if verb == "drafted" else "the budget draft"
+    if period_start and period_end:
+        return f"I {verb} {subject} for {period_start} to {period_end}{savings_text}."
+    return f"I {verb} {subject}{savings_text}."
+
+
+def _filtered_highlights(turn_result: dict[str, Any]) -> list[str]:
+    """Filter highlights that blur the distinction between the new draft and the active plan."""
+    turn_intent = dict(turn_result.get("turn_intent", {}))
+    intent = str(turn_intent.get("intent", "")).strip()
+    highlights = [str(item).strip() for item in turn_result.get("highlights", []) if str(item).strip()]
+    if intent not in {"budget_recommendation", "budget_revision"}:
+        return highlights
+
+    blocked_markers = [
+        "current active budget",
+        "current active budget plan",
+        "current budget period",
+        "current savings target",
+        "active budget period",
+    ]
+    filtered = [
+        item for item in highlights
+        if not any(marker in item.lower() for marker in blocked_markers)
+    ]
+    return filtered
+
+
+def _render_active_budget_overwrite_warning(turn_result: dict[str, Any]) -> str:
+    """Warn the user when approving a draft will replace an existing active budget."""
+    turn_intent = dict(turn_result.get("turn_intent", {}))
+    intent = str(turn_intent.get("intent", "")).strip()
+    if intent not in {"budget_recommendation", "budget_revision"}:
+        return ""
+
+    active_plan = dict(turn_result.get("active_budget_plan", {}) or {})
+    if active_plan.get("status") == "missing" or not active_plan:
+        return ""
+
+    period_start = str(active_plan.get("period_start", "")).strip()
+    period_end = str(active_plan.get("period_end", "")).strip()
+    if period_start and period_end:
+        period_text = f" for {period_start} to {period_end}"
+    else:
+        period_text = ""
+
+    return (
+        "**Heads up**\n"
+        f"Approving this draft will replace your current active budget{period_text} "
+        "and archive the existing plan."
+    )
 
 
 def _render_budget_plan_details(turn_result: dict[str, Any]) -> str:

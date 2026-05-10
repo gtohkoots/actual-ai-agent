@@ -232,3 +232,96 @@ def test_run_planner_agent_turn_handles_revision_without_pending_recommendation(
     assert result["used_tools"] == []
     assert result["summary"] == "There is no pending budget draft to revise yet."
     assert result["updated_planner_state"]["pending_recommendation"] is None
+
+
+def test_run_planner_agent_turn_revises_current_active_budget_without_pending_draft(monkeypatch):
+    monkeypatch.setattr(
+        planner_agent,
+        "get_multiple_resource_payloads",
+        lambda uris, db_path=None: {
+            "planner://budget/active-plan": {
+                "plan_id": "plan-1",
+                "period_start": "2026-05-06",
+                "period_end": "2026-06-04",
+                "status": "active",
+                "targets": [
+                    {"category_name": "Bills", "target_amount": 1200.0},
+                    {"category_name": "Dine", "target_amount": 247.0},
+                    {"category_name": "Savings", "target_amount": 500.0},
+                ],
+            },
+            "planner://budget/current-status": {"status": "active"},
+        },
+    )
+    monkeypatch.setattr(
+        planner_agent,
+        "interpret_planner_turn_intent",
+        lambda user_message, has_pending_recommendation=False: {
+            "intent": "budget_review",
+            "confidence": 0.72,
+            "needs_pending_recommendation": False,
+            "allowed_tools": [],
+            "notes": "Default review routing.",
+        },
+    )
+
+    seen_arguments = {}
+
+    def fake_call_tool_payload(tool_name, arguments=None, db_path=None):
+        seen_arguments[tool_name] = arguments
+        return {
+            "period_start": "2026-05-06",
+            "period_end": "2026-06-04",
+            "planned_savings": 500.0,
+            "category_targets": [{"category_name": "Dine", "recommended_target": 275.0}],
+            "revision_context": {"protected_categories": ["Bills"]},
+        }
+
+    monkeypatch.setattr(planner_agent, "call_tool_payload", fake_call_tool_payload)
+    monkeypatch.setattr(
+        planner_agent,
+        "generate_planner_response",
+        lambda prompt_context: {
+            "summary": "Revised active budget draft ready.",
+            "highlights": ["Dine was raised.", "Bills stayed protected."],
+            "next_action": "Review the revised draft and confirm whether you want to save it.",
+        },
+    )
+
+    result = planner_agent.run_planner_agent_turn(
+        "Update my current budget and increase Dine a bit while keeping Bills fixed.",
+        planner_state={"assistant_mode": "planner"},
+    )
+
+    assert result["turn_intent"]["intent"] == "budget_revision"
+    assert result["used_tools"] == ["revise_budget_recommendation"]
+    assert seen_arguments["revise_budget_recommendation"]["current_recommendation"]["planned_savings"] == 500.0
+    assert seen_arguments["revise_budget_recommendation"]["current_recommendation"]["category_targets"][1]["category_name"] == "Dine"
+    assert result["updated_planner_state"]["pending_recommendation"]["category_targets"][0]["recommended_target"] == 275.0
+
+
+def test_run_planner_agent_turn_does_not_bridge_current_budget_revision_without_active_plan(monkeypatch):
+    monkeypatch.setattr(
+        planner_agent,
+        "get_multiple_resource_payloads",
+        lambda uris, db_path=None: {uri: _missing_payloads()[uri] for uri in uris},
+    )
+    monkeypatch.setattr(
+        planner_agent,
+        "interpret_planner_turn_intent",
+        lambda user_message, has_pending_recommendation=False: {
+            "intent": "budget_review",
+            "confidence": 0.72,
+            "needs_pending_recommendation": False,
+            "allowed_tools": [],
+            "notes": "Default review routing.",
+        },
+    )
+
+    result = planner_agent.run_planner_agent_turn(
+        "Update my current budget and increase Dine a bit.",
+        planner_state={"assistant_mode": "planner"},
+    )
+
+    assert result["used_tools"] == []
+    assert result["summary"] == "No active budget plan is set up yet."
