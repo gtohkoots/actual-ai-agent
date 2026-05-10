@@ -904,10 +904,21 @@ function App() {
                           {item.status.replace("_", " ")}
                         </span>
                       </div>
+                      <div className="budget-target-bar-shell">
+                        <div className="budget-target-bar-meta">
+                          <span>Spent {currency(item.actual_amount)}</span>
+                          <strong>{Number(item.utilization_pct || 0).toFixed(1)}%</strong>
+                        </div>
+                        <div className="category-track budget-target-track">
+                          <div
+                            className={`category-fill budget-target-fill ${getBudgetCategoryTone(item.status)}`}
+                            style={{ width: `${Math.max(6, Math.min(Number(item.utilization_pct || 0), 100))}%` }}
+                          />
+                        </div>
+                      </div>
                       <div className="budget-target-row-metrics">
                         <span>Target {currency(item.target_amount)}</span>
-                        <span>Spent {currency(item.actual_amount)}</span>
-                        <span>Remaining {currency(item.remaining_amount)}</span>
+                        <span>Left {currency(item.remaining_amount)}</span>
                       </div>
                     </div>
                   ))}

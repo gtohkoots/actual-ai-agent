@@ -708,7 +708,7 @@ button {
 
 .budget-target-row {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   padding: 12px 14px;
   border-radius: 16px;
   border: 1px solid var(--line);
@@ -720,6 +720,41 @@ button {
   justify-content: space-between;
   gap: 12px;
   align-items: center;
+}
+
+.budget-target-bar-shell {
+  display: grid;
+  gap: 8px;
+}
+
+.budget-target-bar-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.budget-target-bar-meta strong {
+  color: var(--ink);
+  font-size: 0.94rem;
+}
+
+.budget-target-track {
+  height: 10px;
+}
+
+.budget-target-fill.is-good {
+  background: linear-gradient(90deg, var(--accent), #85ae7e);
+}
+
+.budget-target-fill.is-warning {
+  background: linear-gradient(90deg, #c38b42, #e4bf64);
+}
+
+.budget-target-fill.is-danger {
+  background: linear-gradient(90deg, #a04b2f, #d77f5e);
 }
 
 .budget-target-row-metrics {
