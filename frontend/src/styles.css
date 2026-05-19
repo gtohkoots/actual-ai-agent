@@ -420,6 +420,195 @@ button {
   opacity: 1;
 }
 
+.assistant-shell {
+  position: fixed;
+  right: 16px;
+  bottom: 72px;
+  z-index: 15;
+  width: min(460px, calc(100vw - 24px));
+  height: min(78vh, 760px);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px;
+  border-radius: 28px;
+  border: 1px solid rgba(31, 92, 77, 0.14);
+  background:
+    linear-gradient(180deg, rgba(255, 250, 243, 0.98), rgba(255, 250, 243, 0.94)),
+    rgba(255, 255, 255, 0.9);
+  box-shadow: 0 24px 60px rgba(29, 22, 14, 0.18);
+  backdrop-filter: blur(16px);
+  animation: popIn 180ms ease-out;
+  overflow: hidden;
+}
+
+.assistant-shell__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.assistant-shell__header h3 {
+  margin: 0;
+  font-size: 1.22rem;
+}
+
+.assistant-shell__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+}
+
+.assistant-shell__mode-toggle {
+  display: inline-flex;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(31, 92, 77, 0.12);
+  background: rgba(255, 255, 255, 0.76);
+  width: fit-content;
+}
+
+.assistant-shell__mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.assistant-shell__mode-pill.active {
+  background: rgba(31, 92, 77, 0.12);
+  color: var(--accent);
+}
+
+.assistant-shell__body {
+  min-height: 0;
+  display: grid;
+}
+
+.assistant-shell .chat-panel {
+  min-height: 0;
+  height: 100%;
+  gap: 8px;
+}
+
+.assistant-shell .planner-state-header,
+.assistant-shell .planner-state-actions,
+.assistant-shell .chat-form-footer,
+.assistant-shell .chat-message-head {
+  flex-wrap: wrap;
+}
+
+.assistant-shell .planner-state-metrics {
+  grid-template-columns: 1fr;
+}
+
+.assistant-shell .chat-feed {
+  min-height: 0;
+}
+
+.assistant-shell .chat-form {
+  position: static;
+  margin-top: auto;
+  padding-top: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.assistant-shell textarea {
+  resize: none;
+  min-height: 72px;
+}
+
+.assistant-shell .chat-history-drawer {
+  top: 70px;
+  right: 12px;
+  left: 12px;
+  width: auto;
+  max-height: calc(100% - 148px);
+}
+
+.assistant-shell__resize-handle {
+  position: absolute;
+  z-index: 2;
+}
+
+.assistant-shell__resize-handle--left {
+  top: 20px;
+  left: -6px;
+  bottom: 20px;
+  width: 14px;
+  cursor: ew-resize;
+}
+
+.assistant-shell__resize-handle--top {
+  top: -6px;
+  left: 20px;
+  right: 20px;
+  height: 14px;
+  cursor: ns-resize;
+}
+
+.assistant-shell__resize-handle--corner {
+  top: -6px;
+  left: -6px;
+  width: 22px;
+  height: 22px;
+  cursor: nwse-resize;
+}
+
+.assistant-shell__resize-handle--left::after,
+.assistant-shell__resize-handle--top::after,
+.assistant-shell__resize-handle--corner::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  background: rgba(31, 92, 77, 0.18);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.assistant-shell__resize-handle--left::after {
+  top: 18px;
+  bottom: 18px;
+  left: 6px;
+  width: 2px;
+}
+
+.assistant-shell__resize-handle--top::after {
+  left: 18px;
+  right: 18px;
+  top: 6px;
+  height: 2px;
+}
+
+.assistant-shell__resize-handle--corner::after {
+  top: 6px;
+  left: 6px;
+  width: 10px;
+  height: 10px;
+  border-top: 2px solid rgba(31, 92, 77, 0.22);
+  border-left: 2px solid rgba(31, 92, 77, 0.22);
+  background: transparent;
+  border-radius: 10px 0 0 0;
+}
+
+.assistant-shell:hover .assistant-shell__resize-handle--left::after,
+.assistant-shell:hover .assistant-shell__resize-handle--top::after,
+.assistant-shell:hover .assistant-shell__resize-handle--corner::after {
+  opacity: 1;
+}
+
 .assistant-launcher-icon {
   color: var(--accent);
 }
@@ -699,6 +888,109 @@ button {
 .budgeting-health-card {
   display: grid;
   gap: 12px;
+}
+
+.budgeting-buckets-guide-card,
+.budgeting-category-mapper-card {
+  display: grid;
+  gap: 12px;
+}
+
+.budgeting-bucket-guide-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.budgeting-bucket-guide-item {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.budgeting-bucket-guide-head,
+.planner-category-mapper-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.budgeting-bucket-guide-head span,
+.planner-category-mapper-copy p,
+.planner-category-mapper-badge {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.budgeting-bucket-guide-item p,
+.planner-category-mapper-copy p {
+  margin: 0;
+}
+
+
+.collapsible-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.collapsible-panel__body {
+  display: grid;
+  gap: 12px;
+}
+
+.collapsible-panel__summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+}
+
+.collapsible-panel__summary-copy {
+  min-width: 0;
+}
+
+.collapsible-panel__toggle {
+  white-space: nowrap;
+}
+.planner-category-mapper-list {
+  display: grid;
+  gap: 10px;
+}
+
+.planner-category-mapper-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.planner-category-mapper-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.planner-category-mapper-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(27, 26, 23, 0.06);
+}
+
+.planner-category-mapper-select select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 11px 12px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--ink);
 }
 
 .budget-target-list {
@@ -1788,5 +2080,20 @@ textarea {
     right: 16px;
     bottom: 16px;
     padding: 8px;
+  }
+
+  .assistant-shell {
+    right: 12px;
+    left: 12px;
+    width: auto;
+    bottom: 68px;
+    height: min(74vh, 720px);
+    padding: 14px;
+  }
+
+  .assistant-shell__resize-handle--left,
+  .assistant-shell__resize-handle--top,
+  .assistant-shell__resize-handle--corner {
+    display: none;
   }
 }

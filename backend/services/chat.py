@@ -343,7 +343,7 @@ def generate_chat_response(request: ChatRequest) -> ChatResponse:
     user_payload = _build_prompt_payload(request, facts)
 
     llm = ChatOpenAI(
-        model=os.getenv("FINANCE_CHAT_MODEL", "gpt-4o-mini"),
+        model=os.getenv("FINANCE_CHAT_MODEL", "gpt-5.4-mini"),
         temperature=0,
     )
     try:

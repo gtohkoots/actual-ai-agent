@@ -41,6 +41,7 @@ EXCLUDED_RECOMMENDATION_CATEGORIES = {
 
 FIXED_EXPENSE_CATEGORIES = {
     "Bills",
+    "Rent",
     "Subscription",
 }
 

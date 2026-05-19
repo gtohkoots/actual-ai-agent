@@ -61,7 +61,7 @@ def interpret_budget_revision_comment(
         return _heuristic_revision_constraints(current_recommendation, user_comment)
 
     llm = ChatOpenAI(
-        model=os.getenv("FINANCE_PLANNER_AGENT_MODEL", os.getenv("FINANCE_CHAT_MODEL", "gpt-4o-mini")),
+        model=os.getenv("FINANCE_PLANNER_AGENT_MODEL", os.getenv("FINANCE_CHAT_MODEL", "gpt-5.4-mini")),
         temperature=0,
     )
     payload = {

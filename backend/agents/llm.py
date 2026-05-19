@@ -110,7 +110,7 @@ def generate_planner_response(prompt_context: dict[str, Any]) -> dict[str, Any]:
         return _fallback_planner_response(prompt_context)
 
     llm = ChatOpenAI(
-        model=os.getenv("FINANCE_PLANNER_AGENT_MODEL", os.getenv("FINANCE_CHAT_MODEL", "gpt-4o-mini")),
+        model=os.getenv("FINANCE_PLANNER_AGENT_MODEL", os.getenv("FINANCE_CHAT_MODEL", "gpt-5.4-mini")),
         temperature=0,
     )
 
@@ -143,7 +143,7 @@ def interpret_planner_turn_intent(
         return _fallback_turn_intent(user_message, has_pending_recommendation=has_pending_recommendation)
 
     llm = ChatOpenAI(
-        model=os.getenv("FINANCE_PLANNER_AGENT_MODEL", os.getenv("FINANCE_CHAT_MODEL", "gpt-4o-mini")),
+        model=os.getenv("FINANCE_PLANNER_AGENT_MODEL", os.getenv("FINANCE_CHAT_MODEL", "gpt-5.4-mini")),
         temperature=0,
     )
 
@@ -176,7 +176,7 @@ def interpret_budget_request_parameters(user_message: str) -> dict[str, Any]:
         return _fallback_budget_request_parameters(user_message)
 
     llm = ChatOpenAI(
-        model=os.getenv("FINANCE_PLANNER_AGENT_MODEL", os.getenv("FINANCE_CHAT_MODEL", "gpt-4o-mini")),
+        model=os.getenv("FINANCE_PLANNER_AGENT_MODEL", os.getenv("FINANCE_CHAT_MODEL", "gpt-5.4-mini")),
         temperature=0,
     )
 

@@ -11,7 +11,9 @@ import {
   Tooltip,
 } from "recharts";
 
+import AssistantShell from "./components/AssistantShell";
 import ChatPanel from "./components/ChatPanel";
+import CollapsiblePanel from "./components/CollapsiblePanel";
 import { fetchAccounts, fetchDashboardOverview } from "./api/dashboard";
 import { fetchPlannerOverview } from "./planner/api";
 
@@ -21,6 +23,37 @@ const railNavItems = [
   { label: "Spending Analysis", icon: TrendingUp, tab: "Spending Analysis" },
   { label: "Budgeting", icon: PiggyBank, tab: "Budgeting Goals" },
 ];
+const PLANNER_BUCKET_OPTIONS = [
+  { id: "inflow", label: "Inflow", description: "Counts as income for budget planning and can raise the total budget cap." },
+  { id: "recurring_inflow", label: "Recurring Inflow", description: "Stable income the planner can trust more heavily when forecasting future periods." },
+  { id: "savings", label: "Savings", description: "Transfers or categories that represent intentional saving rather than everyday spend." },
+  { id: "exclude", label: "Exclude", description: "Ignore this category when generating budget recommendations." },
+  { id: "fixed", label: "Fixed", description: "Recurring expenses that should stay close to baseline, like rent or subscriptions." },
+  { id: "essential", label: "Essential", description: "Needs that can flex a bit, but usually should be protected in the budget." },
+  { id: "discretionary", label: "Discretionary", description: "Flexible spend that the planner can trim first to preserve savings targets." },
+];
+const DEFAULT_BUCKET_ASSIGNMENTS = {
+  "Rent Transfer": "inflow",
+  income: "recurring_inflow",
+  "One-time deposit": "inflow",
+  Paycheck: "recurring_inflow",
+  "Starting Balances": "inflow",
+  Savings: "savings",
+  "Ignored - expense": "exclude",
+  "Internal Transfer Expense": "exclude",
+  "Internal Transfer Income": "exclude",
+  "Lease Buyout": "exclude",
+  "One-time expense": "exclude",
+  "Pay Credit Card": "exclude",
+  Bills: "fixed",
+  Rent: "fixed",
+  Subscription: "fixed",
+  Grocery: "essential",
+  "Bills (Flexible)": "essential",
+  Gas: "essential",
+  Home: "essential",
+  Work: "essential",
+};
 const WINDOW_PRESETS = [
   { value: "all_time", label: "All time" },
   { value: "month_to_date", label: "Month to date" },
@@ -176,6 +209,10 @@ function getBudgetCategoryTone(status) {
   return "is-good";
 }
 
+function getDefaultPlannerBucket(categoryName) {
+  return DEFAULT_BUCKET_ASSIGNMENTS[categoryName] || "discretionary";
+}
+
 function App() {
   const [accountsMeta, setAccountsMeta] = useState([]);
   const [dashboard, setDashboard] = useState(null);
@@ -192,6 +229,9 @@ function App() {
   const [isLoadingPlannerOverview, setIsLoadingPlannerOverview] = useState(false);
   const [plannerOverviewError, setPlannerOverviewError] = useState("");
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
+  const [isAssistantShellOpen, setIsAssistantShellOpen] = useState(false);
+  const [assistantShellMode, setAssistantShellMode] = useState("analysis");
+  const [plannerCategoryAssignments, setPlannerCategoryAssignments] = useState({});
   const [error, setError] = useState("");
   const [plannerOverviewRefreshToken, setPlannerOverviewRefreshToken] = useState(0);
   const hasLoadedDashboardRef = useRef(false);
@@ -291,7 +331,6 @@ function App() {
     }
   }, [cards, selectedCardId]);
 
-  const isAssistantView = activeTab === "AI Assistant";
   const isBudgetingTab = activeTab === "Budgeting Goals" || activeTab === "Budgeting Plan";
   const spendPieColors = ["#1f5c4d", "#aa7d2d", "#a04b2f", "#5a3d18", "#1b2c55"];
   const incomePieColors = ["#214d73", "#4d7ba3", "#7d5ba6", "#5a3d18", "#1f5c4d"];
@@ -348,8 +387,9 @@ function App() {
     setActiveTab("Card Details");
   }
 
-  function handleAssistantOpen() {
-    setActiveTab("AI Assistant");
+  function handleAssistantOpen(nextMode) {
+    setAssistantShellMode(nextMode || (isBudgetingTab ? "planner" : "analysis"));
+    setIsAssistantShellOpen(true);
   }
 
   function handlePresetSelect(preset) {
@@ -383,7 +423,8 @@ function App() {
       id: `${selectedCard.id}-${transaction.date}-${transaction.merchant}-${Date.now()}`,
       text: prompt,
     });
-    setActiveTab("AI Assistant");
+    setAssistantShellMode("analysis");
+    setIsAssistantShellOpen(true);
   }
 
   function clearAssistantSeed() {
@@ -792,6 +833,22 @@ function App() {
     const atRiskCategories = categoryStatuses.filter((item) => item.status === "at_risk");
     const onTrackCount = categoryStatuses.filter((item) => item.status === "on_track").length;
     const savingsStatus = categoryStatuses.find((item) => item.category_name === "Savings") || null;
+    const plannerCategories = Array.from(
+      new Set([
+        ...categoryStatuses.map((item) => item.category_name).filter(Boolean),
+        ...(selectedCard?.categories || []).map((item) => item.category).filter(Boolean),
+      ])
+    )
+      .sort((left, right) => left.localeCompare(right))
+      .map((categoryName) => ({
+        categoryName,
+        bucket: plannerCategoryAssignments[categoryName] || getDefaultPlannerBucket(categoryName),
+        liveStatus: categoryStatuses.find((item) => item.category_name === categoryName) || null,
+      }));
+    const bucketCounts = plannerCategories.reduce((counts, item) => {
+      counts[item.bucket] = (counts[item.bucket] || 0) + 1;
+      return counts;
+    }, {});
 
     return (
       <>
@@ -858,7 +915,96 @@ function App() {
 
         <section className="budgeting-stage">
           <div className="budgeting-active-plan-stack">
-            {!isGoalsView ? (
+            {isGoalsView ? (
+              <>
+                <CollapsiblePanel
+                  sectionLabel="Planner Categories"
+                  title="Teach the planner how your categories behave"
+                  className="budgeting-buckets-guide-card"
+                  defaultOpen={false}
+                  collapsedLabel="View bucket guide"
+                  expandedLabel="Hide bucket guide"
+                  summary={(
+                    <p className="panel-note">
+                      Budget recommendations depend on category buckets. Open this guide when you want a quick refresher on what counts as income, savings, fixed commitments, and flexible spend.
+                    </p>
+                  )}
+                >
+                  <div className="budgeting-bucket-guide-grid">
+                    {PLANNER_BUCKET_OPTIONS.map((bucket) => (
+                      <div key={bucket.id} className="budgeting-bucket-guide-item">
+                        <div className="budgeting-bucket-guide-head">
+                          <strong>{bucket.label}</strong>
+                          <span>{bucketCounts[bucket.id] || 0} assigned</span>
+                        </div>
+                        <p>{bucket.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </CollapsiblePanel>
+
+                <CollapsiblePanel
+                  sectionLabel="Category Assignment"
+                  title={plannerCategories.length ? "Customize planner buckets when you need to" : "No categories available yet"}
+                  className="budgeting-category-mapper-card"
+                  defaultOpen={false}
+                  collapsedLabel="Edit assignments"
+                  expandedLabel="Hide assignment editor"
+                  collapsible={plannerCategories.length > 0}
+                  summary={
+                    plannerCategories.length ? (
+                      <p className="panel-note">
+                        Most users will only need this when the planner misclassifies a category. Open the editor to review or override the current bucket suggestions.
+                      </p>
+                    ) : (
+                      <p className="panel-note">
+                        Load a saved budget or recent spending categories first, then the planner category setup will appear here.
+                      </p>
+                    )
+                  }
+                >
+                  {plannerCategories.length ? (
+                    <div className="planner-category-mapper-list">
+                      {plannerCategories.map((item) => (
+                        <div key={item.categoryName} className="planner-category-mapper-row">
+                          <div className="planner-category-mapper-copy">
+                            <div className="planner-category-mapper-head">
+                              <strong>{item.categoryName}</strong>
+                              {item.liveStatus ? (
+                                <span className={"budget-status-pill " + getBudgetCategoryTone(item.liveStatus.status)}>
+                                  {item.liveStatus.status.replace("_", " ")}
+                                </span>
+                              ) : (
+                                <span className="planner-category-mapper-badge">No live budget status</span>
+                              )}
+                            </div>
+                            <p>{PLANNER_BUCKET_OPTIONS.find((bucket) => bucket.id === item.bucket)?.description}</p>
+                          </div>
+                          <label className="planner-category-mapper-select">
+                            <span className="sr-only">Planner bucket for {item.categoryName}</span>
+                            <select
+                              value={item.bucket}
+                              onChange={(event) =>
+                                setPlannerCategoryAssignments((current) => ({
+                                  ...current,
+                                  [item.categoryName]: event.target.value,
+                                }))
+                              }
+                            >
+                              {PLANNER_BUCKET_OPTIONS.map((bucket) => (
+                                <option key={bucket.id} value={bucket.id}>
+                                  {bucket.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </CollapsiblePanel>
+              </>
+            ) : (
               <article className="panel budgeting-workspace-card">
                 <div className="panel-header">
                   <div>
@@ -884,16 +1030,27 @@ function App() {
                   </div>
                 </div>
               </article>
-            ) : null}
-
-            <article className="panel budgeting-targets-card">
-              <div className="panel-header">
-                <div>
-                  <p className="section-label">Active Plan Detail</p>
-                  <h3>{hasActivePlan ? "Category targets and live status" : "Waiting for first saved plan"}</h3>
-                </div>
-              </div>
-
+            )}
+            <CollapsiblePanel
+              sectionLabel="Active Plan Detail"
+              title={hasActivePlan ? "Category targets and live status" : "Waiting for first saved plan"}
+              className="budgeting-targets-card"
+              defaultOpen={true}
+              collapsedLabel="View targets"
+              expandedLabel="Hide targets"
+              collapsible={hasActivePlan}
+              summary={
+                hasActivePlan ? (
+                  <p className="panel-note">
+                    Track each saved category against live spend, then open the detail list when you want to inspect pacing, pressure, and remaining budget by category.
+                  </p>
+                ) : (
+                  <p className="panel-note">
+                    Once a budget is approved, its category targets and live spend status will appear here for quick reference.
+                  </p>
+                )
+              }
+            >
               {hasActivePlan ? (
                 <div className="budget-target-list">
                   {categoryStatuses.map((item) => (
@@ -923,12 +1080,8 @@ function App() {
                     </div>
                   ))}
                 </div>
-              ) : (
-                <p className="panel-note">
-                  Once a budget is approved, its category targets and live spend status will appear here for quick reference.
-                </p>
-              )}
-            </article>
+              ) : null}
+            </CollapsiblePanel>
 
             <article className="panel budgeting-health-card">
               <div className="panel-header">
@@ -1134,38 +1287,45 @@ function App() {
               <span />
               <p>Updating window...</p>
             </div>
-            {isAssistantView ? (
-              <section className="assistant-stage">
-                <ChatPanel
-                  card={selectedCard}
-                  analysisWindow={selectedWindow}
-                  seedMessage={assistantSeed?.text || ""}
-                  seedMessageId={assistantSeed?.id || ""}
-                  onSeedConsumed={clearAssistantSeed}
-                />
-              </section>
-            ) : (
-              <>
-                {activeTab === "Overview" ? renderOverviewTab() : null}
-                {activeTab === "Card Details" ? renderCardsTab() : null}
-                {activeTab === "Spending Analysis" ? renderSpendingAnalysisTab() : null}
-                {isBudgetingTab ? renderBudgetingTab() : null}
-              </>
-            )}
+            <>
+              {activeTab === "Overview" ? renderOverviewTab() : null}
+              {activeTab === "Card Details" ? renderCardsTab() : null}
+              {activeTab === "Spending Analysis" ? renderSpendingAnalysisTab() : null}
+              {isBudgetingTab ? renderBudgetingTab() : null}
+            </>
           </div>
         ) : null}
 
-        {!isAssistantView ? (
-          <button
-            className="assistant-launcher"
-            type="button"
-            onClick={handleAssistantOpen}
-            aria-label="Open assistant"
-            title="Open assistant"
-          >
-            <MessageCircle className="assistant-launcher-icon" size={16} aria-hidden="true" />
-            <span className="assistant-launcher-label">Assistant</span>
-          </button>
+        {selectedCard ? (
+          <>
+            <AssistantShell
+              open={isAssistantShellOpen}
+              mode={assistantShellMode}
+              onModeChange={setAssistantShellMode}
+              onClose={() => setIsAssistantShellOpen(false)}
+              card={selectedCard}
+              analysisWindow={selectedWindow}
+              seedMessage={assistantSeed?.text || ""}
+              seedMessageId={assistantSeed?.id || ""}
+              onSeedConsumed={clearAssistantSeed}
+            />
+            <button
+              className={`assistant-launcher ${isAssistantShellOpen ? "assistant-launcher--active" : ""}`}
+              type="button"
+              onClick={() => {
+                if (isAssistantShellOpen) {
+                  setIsAssistantShellOpen(false);
+                  return;
+                }
+                handleAssistantOpen();
+              }}
+              aria-label={isAssistantShellOpen ? "Close assistant" : "Open assistant"}
+              title={isAssistantShellOpen ? "Close assistant" : "Open assistant"}
+            >
+              <MessageCircle className="assistant-launcher-icon" size={16} aria-hidden="true" />
+              <span className="assistant-launcher-label">Assistant</span>
+            </button>
+          </>
         ) : null}
       </main>
     </div>

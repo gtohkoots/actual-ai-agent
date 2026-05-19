@@ -13,6 +13,8 @@ import {
   sendPlannerMessage,
 } from "../planner/api";
 
+const NOOP = () => {};
+
 const CONTEXT_TABS = [
   { id: "card", label: "Card" },
   { id: "window", label: "Window" },
@@ -152,8 +154,8 @@ function ChatPanel({
   mode = "legacy",
   seedMessage = "",
   seedMessageId = "",
-  onSeedConsumed = () => {},
-  onPlannerStateChange = () => {},
+  onSeedConsumed = NOOP,
+  onPlannerStateChange = NOOP,
 }) {
   const isPlannerMode = mode === "planner";
   const initialWelcomeMessage = useMemo(

@@ -317,7 +317,7 @@ SYSTEM_MESSAGE = (
 
 
 def main() -> None:
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    llm = ChatOpenAI(model="gpt-5.4-mini", temperature=0)
     agent = create_agent(
         model=llm,
         tools=TOOLS,

@@ -140,3 +140,45 @@ def test_recommend_budget_targets_ignores_internal_transfer_categories(monkeypat
     category_map = {item["category_name"]: item for item in result["category_targets"]}
     assert "Internal Transfer Expense" not in category_map
     assert "Internal Transfer Income" not in result["assumptions"]["income_categories_used"]
+
+
+def test_recommend_budget_targets_includes_rent_as_fixed_category(monkeypatch):
+    frames = {
+        ("2026-03-29", "2026-04-27"): pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2026-04-01", "2026-04-02", "2026-04-03"]),
+                "amount": [4000.0, -1800.0, -450.0],
+                "payee": ["Payroll", "Landlord", "Grocer"],
+                "category_name": ["Paycheck", "Rent", "Grocery"],
+            }
+        ),
+        ("2026-02-27", "2026-03-28"): pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2026-03-01", "2026-03-02", "2026-03-03"]),
+                "amount": [4000.0, -1800.0, -430.0],
+                "payee": ["Payroll", "Landlord", "Grocer"],
+                "category_name": ["Paycheck", "Rent", "Grocery"],
+            }
+        ),
+        ("2026-01-28", "2026-02-26"): pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2026-02-01", "2026-02-02", "2026-02-03"]),
+                "amount": [4000.0, -1800.0, -420.0],
+                "payee": ["Payroll", "Landlord", "Grocer"],
+                "category_name": ["Paycheck", "Rent", "Grocery"],
+            }
+        ),
+    }
+
+    monkeypatch.setattr(
+        recommendation_service,
+        "get_transactions_in_date_range",
+        lambda start, end, **kwargs: frames[(start, end)].copy(),
+    )
+
+    result = recommendation_service.recommend_budget_targets("2026-04-28", "2026-05-27")
+
+    category_map = {item["category_name"]: item for item in result["category_targets"]}
+    assert "Rent" in category_map
+    assert category_map["Rent"]["category_type"] == "fixed"
+    assert category_map["Rent"]["recommended_target"] == 1800.0
