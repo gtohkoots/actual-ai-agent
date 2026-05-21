@@ -22,9 +22,9 @@ def _stub_retrieval_pack(monkeypatch):
         }
     )
 
-    monkeypatch.setattr("backend.services.chat.get_transactions_in_date_range", lambda *args, **kwargs: frame.copy())
+    monkeypatch.setattr("backend.agents.analysis_context.get_transactions_in_date_range", lambda *args, **kwargs: frame.copy())
     monkeypatch.setattr(
-        "backend.services.chat.get_week_rollups",
+        "backend.agents.analysis_context.get_week_rollups",
         lambda *args, **kwargs: {
             "window": {"start": "2026-03-16", "end": "2026-03-22"},
             "summary": {"total_income": 1200.0, "total_expense": 42.5, "net_cashflow": 1157.5},
@@ -33,7 +33,7 @@ def _stub_retrieval_pack(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        "backend.services.chat.compare_week_over_week",
+        "backend.agents.analysis_context.compare_week_over_week",
         lambda *args, **kwargs: {
             "totals": {
                 "this_week": {"income": 1200.0, "expense": 42.5, "net": 1157.5},
@@ -44,11 +44,11 @@ def _stub_retrieval_pack(monkeypatch):
             "category_changes": [],
         },
     )
-    monkeypatch.setattr("backend.services.chat.search_past_weeks_by_category", lambda *args, **kwargs: [])
-    monkeypatch.setattr("backend.services.chat.find_similar_spending_weeks", lambda *args, **kwargs: [])
-    monkeypatch.setattr("backend.services.chat.get_recent_anomalies", lambda *args, **kwargs: [])
-    monkeypatch.setattr("backend.services.chat.search_reports", lambda *args, **kwargs: [])
-    monkeypatch.setattr("backend.services.chat.search_documents", lambda *args, **kwargs: [])
+    monkeypatch.setattr("backend.agents.analysis_context.search_past_weeks_by_category", lambda *args, **kwargs: [])
+    monkeypatch.setattr("backend.agents.analysis_context.find_similar_spending_weeks", lambda *args, **kwargs: [])
+    monkeypatch.setattr("backend.agents.analysis_context.get_recent_anomalies", lambda *args, **kwargs: [])
+    monkeypatch.setattr("backend.agents.analysis_context.search_reports", lambda *args, **kwargs: [])
+    monkeypatch.setattr("backend.agents.analysis_context.search_documents", lambda *args, **kwargs: [])
 
 
 def test_generate_chat_response_returns_structured_fallback(monkeypatch):
@@ -86,7 +86,7 @@ def test_generate_chat_response_falls_back_when_model_call_fails(monkeypatch):
         def invoke(self, messages):
             raise RuntimeError("model unavailable")
 
-    monkeypatch.setattr("backend.services.chat.ChatOpenAI", FailingChatOpenAI)
+    monkeypatch.setattr("backend.agents.analysis_llm.ChatOpenAI", FailingChatOpenAI)
 
     response = generate_chat_response(
         ChatRequest(
@@ -119,7 +119,7 @@ def test_chat_endpoint_uses_chat_service(monkeypatch):
 
     client = TestClient(app)
     response = client.post(
-        "/api/chat",
+        "/api/analysis/chat",
         json={
             "message": "Summarize this card",
             "conversation_id": "conv-123",
@@ -180,7 +180,7 @@ def test_chat_conversation_endpoint_returns_thread(monkeypatch, tmp_path):
     )
 
     client = TestClient(app)
-    response = client.get("/api/chat/conversations/conv-thread")
+    response = client.get("/api/analysis/chat/conversations/conv-thread")
 
     assert response.status_code == 200
     payload = response.json()
@@ -221,7 +221,7 @@ def test_chat_conversations_endpoint_lists_recent_threads(monkeypatch, tmp_path)
     )
 
     client = TestClient(app)
-    response = client.get("/api/chat/conversations", params={"account_pid": "acct-789", "limit": 5})
+    response = client.get("/api/analysis/chat/conversations", params={"account_pid": "acct-789", "limit": 5})
 
     assert response.status_code == 200
     payload = response.json()
@@ -250,9 +250,9 @@ def test_delete_chat_conversation_removes_thread(monkeypatch, tmp_path):
     )
 
     client = TestClient(app)
-    response = client.delete("/api/chat/conversations/conv-delete")
+    response = client.delete("/api/analysis/chat/conversations/conv-delete")
 
     assert response.status_code == 204
 
-    not_found = client.get("/api/chat/conversations/conv-delete")
+    not_found = client.get("/api/analysis/chat/conversations/conv-delete")
     assert not_found.status_code == 404

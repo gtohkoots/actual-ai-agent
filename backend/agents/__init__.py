@@ -1,2 +1,1 @@
-"""Planner agent package."""
-
+"""Shared backend agent package."""

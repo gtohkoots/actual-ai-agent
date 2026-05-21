@@ -1,7 +1,7 @@
 import { getBackendBaseUrl, normalizeMessages } from "../api/backend";
 
 export async function sendChatMessage({ message, conversationId, history, context }) {
-  const response = await fetch(`${getBackendBaseUrl()}/api/chat`, {
+  const response = await fetch(`${getBackendBaseUrl()}/api/analysis/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -27,7 +27,7 @@ export async function fetchChatConversation(conversationId) {
     return null;
   }
 
-  const response = await fetch(`${getBackendBaseUrl()}/api/chat/conversations/${conversationId}`);
+  const response = await fetch(`${getBackendBaseUrl()}/api/analysis/chat/conversations/${conversationId}`);
   if (response.status === 404) {
     return null;
   }
@@ -44,7 +44,7 @@ export async function fetchChatConversations(accountPid, limit = 8) {
   if (accountPid) params.set("account_pid", accountPid);
   if (limit) params.set("limit", String(limit));
   const query = params.toString();
-  const response = await fetch(`${getBackendBaseUrl()}/api/chat/conversations${query ? `?${query}` : ""}`);
+  const response = await fetch(`${getBackendBaseUrl()}/api/analysis/chat/conversations${query ? `?${query}` : ""}`);
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(detail || `Request failed with status ${response.status}`);
@@ -53,7 +53,7 @@ export async function fetchChatConversations(accountPid, limit = 8) {
 }
 
 export async function deleteChatConversation(conversationId) {
-  const response = await fetch(`${getBackendBaseUrl()}/api/chat/conversations/${conversationId}`, {
+  const response = await fetch(`${getBackendBaseUrl()}/api/analysis/chat/conversations/${conversationId}`, {
     method: "DELETE",
   });
 

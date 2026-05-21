@@ -44,8 +44,8 @@ def dashboard(start_date: str | None = None, end_date: str | None = None) -> Das
     return build_dashboard_overview(start_date=start_date, end_date=end_date)
 
 
-@app.post("/api/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
+@app.post("/api/analysis/chat", response_model=ChatResponse)
+def analysis_chat(request: ChatRequest) -> ChatResponse:
     return generate_chat_response(request)
 
 
@@ -59,21 +59,21 @@ def planner_overview() -> PlannerOverviewResponse:
     return generate_planner_overview()
 
 
-@app.get("/api/chat/conversations/{conversation_id}", response_model=ConversationThread)
-def chat_conversation(conversation_id: str) -> ConversationThread:
+@app.get("/api/analysis/chat/conversations/{conversation_id}", response_model=ConversationThread)
+def analysis_chat_conversation(conversation_id: str) -> ConversationThread:
     try:
         return ConversationThread.model_validate(load_conversation(conversation_id))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Conversation not found") from exc
 
 
-@app.get("/api/chat/conversations")
-def chat_conversations(account_pid: str | None = None, limit: int = 8) -> list[dict]:
+@app.get("/api/analysis/chat/conversations")
+def analysis_chat_conversations(account_pid: str | None = None, limit: int = 8) -> list[dict]:
     return list_conversations(account_pid=account_pid, limit=limit)
 
 
-@app.delete("/api/chat/conversations/{conversation_id}", status_code=204)
-def delete_chat_conversation(conversation_id: str) -> None:
+@app.delete("/api/analysis/chat/conversations/{conversation_id}", status_code=204)
+def delete_analysis_chat_conversation(conversation_id: str) -> None:
     delete_conversation(conversation_id)
 
 
