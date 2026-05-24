@@ -1,7 +1,6 @@
 import sys
 from pathlib import Path
 
-import pandas as pd
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -11,49 +10,69 @@ from backend.services.chat import ChatContext, ChatRequest, ChatResponse, ChatSo
 from backend.services.conversations import load_conversation
 
 
-def _stub_retrieval_pack(monkeypatch):
-    frame = pd.DataFrame(
-        {
-            "date": ["2026-03-16"],
-            "amount": [-42.5],
-            "payee": ["Coffee Shop"],
-            "category_name": ["Dining"],
-            "account_name": ["Visa"],
-        }
-    )
-
-    monkeypatch.setattr("backend.agents.analysis.context.get_transactions_in_date_range", lambda *args, **kwargs: frame.copy())
+def _stub_analysis_agent(
+    monkeypatch,
+    *,
+    content="### Visa\n\nGrounded fallback.",
+    sources=None,
+    actions=None,
+    facts=None,
+    retrieval_strategy=None,
+):
     monkeypatch.setattr(
-        "backend.agents.analysis.context.get_week_rollups",
-        lambda *args, **kwargs: {
-            "window": {"start": "2026-03-16", "end": "2026-03-22"},
-            "summary": {"total_income": 1200.0, "total_expense": 42.5, "net_cashflow": 1157.5},
-            "by_category": [{"category": "Dining", "amount": 42.5}],
-            "top_payees": [{"payee": "Coffee Shop", "amount": 42.5}],
+        "backend.services.chat.run_analysis_agent_turn",
+        lambda request: {
+            "content": content,
+            "sources": sources
+            or [{"label": "get_portfolio_summary", "detail": "2026-03-16 to 2026-03-22 · Income $1200.00"}],
+            "actions": actions or ["Compare to last week", "Review top categories", "Inspect flagged transactions"],
+            "facts": facts or {"analysis_request": {"scope": "account", "intent": "comparison"}},
+            "retrieval_strategy": retrieval_strategy or ["get_portfolio_summary"],
         },
     )
-    monkeypatch.setattr(
-        "backend.agents.analysis.context.compare_week_over_week",
-        lambda *args, **kwargs: {
-            "totals": {
-                "this_week": {"income": 1200.0, "expense": 42.5, "net": 1157.5},
-                "last_week": {"income": 1100.0, "expense": 30.0, "net": 1070.0},
-                "delta": {"income": 100.0, "expense": 12.5, "net": 87.5},
-                "pct_change": {"income": 9.09, "expense": 41.67, "net": 8.18},
-            },
-            "category_changes": [],
-        },
-    )
-    monkeypatch.setattr("backend.agents.analysis.context.search_past_weeks_by_category", lambda *args, **kwargs: [])
-    monkeypatch.setattr("backend.agents.analysis.context.find_similar_spending_weeks", lambda *args, **kwargs: [])
-    monkeypatch.setattr("backend.agents.analysis.context.get_recent_anomalies", lambda *args, **kwargs: [])
-    monkeypatch.setattr("backend.agents.analysis.context.search_reports", lambda *args, **kwargs: [])
-    monkeypatch.setattr("backend.agents.analysis.context.search_documents", lambda *args, **kwargs: [])
 
 
 def test_generate_chat_response_returns_structured_fallback(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    _stub_retrieval_pack(monkeypatch)
+    monkeypatch.setattr(
+        "backend.agents.analysis.agent.plan_analysis_tool_calls",
+        lambda request, analysis_request: {
+            "scope": "account",
+            "intent": "comparison",
+            "tool_calls": [
+                {
+                    "tool": "compare_periods",
+                    "args": {
+                        "current_start": "2026-03-16",
+                        "current_end": "2026-03-22",
+                        "previous_start": "2026-03-09",
+                        "previous_end": "2026-03-15",
+                    },
+                }
+            ],
+            "planning_mode": "fallback",
+            "reasoning": "test",
+        },
+    )
+    monkeypatch.setattr(
+        "backend.agents.analysis.agent.execute_analysis_tool_plan",
+        lambda tool_plan: {
+            "tool_results": [
+                {
+                    "tool": "compare_periods",
+                    "args": tool_plan["tool_calls"][0]["args"],
+                    "step": 0,
+                    "result": {"total_deltas": {"total_income": 100.0, "total_expense": 12.5, "net_cashflow": 87.5}},
+                }
+            ],
+            "used_tools": ["compare_periods"],
+            "failures": [],
+        },
+    )
+    monkeypatch.setattr(
+        "backend.agents.analysis.agent.generate_analysis_response",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("model unavailable")),
+    )
 
     response = generate_chat_response(
         ChatRequest(
@@ -70,23 +89,47 @@ def test_generate_chat_response_returns_structured_fallback(monkeypatch):
 
     assert response.conversation_id == "conv-1"
     assert "Visa" in response.content
+    assert "**Findings**" in response.content
     assert response.sources
-    assert response.actions == ["Compare to last week", "Show similar weeks", "Search historical reports"]
-    assert response.retrieval_strategy == ["live_rollup", "week_over_week"]
+    assert response.actions == ["Compare to last week", "Review top categories", "Inspect flagged transactions"]
+    assert response.retrieval_strategy == ["compare_periods"]
 
 
 def test_generate_chat_response_falls_back_when_model_call_fails(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    _stub_retrieval_pack(monkeypatch)
-
-    class FailingChatOpenAI:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
-
-        def invoke(self, messages):
-            raise RuntimeError("model unavailable")
-
-    monkeypatch.setattr("backend.agents.analysis.llm.ChatOpenAI", FailingChatOpenAI)
+    monkeypatch.setattr(
+        "backend.agents.analysis.agent.plan_analysis_tool_calls",
+        lambda request, analysis_request: {
+            "scope": "account",
+            "intent": "comparison",
+            "tool_calls": [{"tool": "get_portfolio_summary", "args": {"period_start": "2026-03-16", "period_end": "2026-03-22"}}],
+            "planning_mode": "model",
+            "reasoning": "test",
+        },
+    )
+    monkeypatch.setattr(
+        "backend.agents.analysis.agent.execute_analysis_tool_plan",
+        lambda tool_plan: {
+            "tool_results": [
+                {
+                    "tool": "get_portfolio_summary",
+                    "args": tool_plan["tool_calls"][0]["args"],
+                    "step": 0,
+                    "result": {
+                        "period_start": "2026-03-16",
+                        "period_end": "2026-03-22",
+                        "summary": {"total_income": 1200.0, "total_expense": 42.5, "net_cashflow": 1157.5},
+                    },
+                }
+            ],
+            "used_tools": ["get_portfolio_summary"],
+            "failures": [],
+        },
+    )
+    monkeypatch.setattr(
+        "backend.agents.analysis.agent.generate_analysis_response",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("model unavailable")),
+    )
 
     response = generate_chat_response(
         ChatRequest(
@@ -104,6 +147,7 @@ def test_generate_chat_response_falls_back_when_model_call_fails(monkeypatch):
     assert response.conversation_id == "conv-2"
     assert "model request failed" in response.content.lower()
     assert response.sources
+    assert response.retrieval_strategy == ["get_portfolio_summary"]
 
 
 def test_chat_endpoint_uses_chat_service(monkeypatch):
@@ -113,7 +157,7 @@ def test_chat_endpoint_uses_chat_service(monkeypatch):
         sources=[ChatSource(label="Current window", detail="2026-03-16 to 2026-03-22")],
         actions=["Show similar weeks"],
         facts={"window": {"start": "2026-03-16", "end": "2026-03-22"}},
-        retrieval_strategy=["live_rollup"],
+        retrieval_strategy=["get_portfolio_summary"],
     )
     monkeypatch.setattr("backend.app.generate_chat_response", lambda request: expected)
 
@@ -135,9 +179,8 @@ def test_chat_endpoint_uses_chat_service(monkeypatch):
 
 
 def test_generate_chat_response_persists_conversation(monkeypatch, tmp_path):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("FINANCE_CHAT_DB_PATH", str(tmp_path / "chat.sqlite"))
-    _stub_retrieval_pack(monkeypatch)
+    _stub_analysis_agent(monkeypatch)
 
     response = generate_chat_response(
         ChatRequest(
@@ -163,7 +206,7 @@ def test_generate_chat_response_persists_conversation(monkeypatch, tmp_path):
 
 def test_chat_conversation_endpoint_returns_thread(monkeypatch, tmp_path):
     monkeypatch.setenv("FINANCE_CHAT_DB_PATH", str(tmp_path / "chat.sqlite"))
-    _stub_retrieval_pack(monkeypatch)
+    _stub_analysis_agent(monkeypatch)
 
     generate_chat_response(
         ChatRequest(
@@ -191,7 +234,7 @@ def test_chat_conversation_endpoint_returns_thread(monkeypatch, tmp_path):
 
 def test_chat_conversations_endpoint_lists_recent_threads(monkeypatch, tmp_path):
     monkeypatch.setenv("FINANCE_CHAT_DB_PATH", str(tmp_path / "chat.sqlite"))
-    _stub_retrieval_pack(monkeypatch)
+    _stub_analysis_agent(monkeypatch)
 
     generate_chat_response(
         ChatRequest(
@@ -233,7 +276,7 @@ def test_chat_conversations_endpoint_lists_recent_threads(monkeypatch, tmp_path)
 
 def test_delete_chat_conversation_removes_thread(monkeypatch, tmp_path):
     monkeypatch.setenv("FINANCE_CHAT_DB_PATH", str(tmp_path / "chat.sqlite"))
-    _stub_retrieval_pack(monkeypatch)
+    _stub_analysis_agent(monkeypatch)
 
     generate_chat_response(
         ChatRequest(
