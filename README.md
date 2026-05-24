@@ -4,12 +4,11 @@ A small personal finance assistant built on top of:
 
 - an Actual Budget SQLite database
 - Python data processing with `pandas`
-- a LangChain tool-calling agent
-- OpenAI chat models for report generation
+- OpenAI chat models for grounded analysis and planning
 - a React frontend for card-spending exploration and AI chat
 - a dedicated Python backend package under `backend/`
 
-The app reads transactions from your Actual database, computes weekly and daily summaries, and can generate Chinese-language finance reports from those facts.
+The app reads transactions from your Actual database, computes financial summaries, and powers both analysis chat and budgeting workflows from those facts.
 
 ## What The App Does
 
@@ -76,21 +75,7 @@ AMEX_ACCT_ID=your_account_id
 
 ## Run The Backend
 
-Start the interactive CLI:
-
-```bash
-./.venv/bin/python -m backend.langchain_runner
-```
-
-You will see example prompts such as:
-
-- `生成一份本周的详细周报并保存`
-- `将时间设为 2025-08-01 到 2025-08-07，然后给我详细报告`
-- `这周和上周相比，支出变化如何？`
-
-Type `exit` or `quit` to leave the app.
-
-Or start the API server for the frontend chatbot:
+Start the API server for the frontend assistant:
 
 ```bash
 ./.venv/bin/uvicorn backend.app:app --reload
@@ -101,7 +86,9 @@ The frontend can call:
 - `GET /api/accounts`
 - `GET /api/dashboard`
 - `GET /api/health`
-- `POST /api/chat`
+- `POST /api/analysis/chat`
+- `POST /api/planner/chat`
+- `GET /api/planner/overview`
 - `POST /api/documents/rebuild`
 - `GET /api/documents/search`
 
@@ -120,30 +107,13 @@ Then open the local Vite URL shown in the terminal.
 ## How It Works
 
 1. The app reads transactions from the Actual SQLite database.
-2. The agent calls internal tools to fetch or summarize data.
-3. The LLM turns those structured results into a Chinese-language financial report.
-4. If requested, the app writes snapshots or reports to disk.
+2. The backend computes grounded summaries and budgeting context.
+3. Analysis and planner assistants turn those structured results into user-facing responses.
+4. Historical artifacts can be rebuilt into a document layer for retrieval.
 
-The current system is a tool-using finance agent rather than a full RAG system. It primarily answers from live ledger data and computed summaries.
+The current system is a grounded finance assistant rather than a free-form autonomous agent. It primarily answers from live ledger data, computed summaries, and planner workflows.
 
-Phase 2 adds a lightweight document layer by converting saved snapshots and reports into a local SQLite document store. This gives the agent a historical corpus it can search later without recomputing everything from the ledger.
-
-## Available Agent Tools
-
-Inside the CLI, the agent can call these tools:
-
-- `update_time_window_tool`: set the active date range
-- `get_weekly_data_tool`: return raw transactions for a date range
-- `get_week_rollups_tool`: return weekly rollups and save a JSON snapshot
-- `compare_to_last_week_tool`: compare a week against the prior week
-- `save_weekly_report_tool`: save a Markdown report
-- `save_daily_snapshot_tool`: save a one-day JSON snapshot
-- `refresh_artifact_documents_tool`: rebuild the historical document store from saved artifacts
-- `search_artifact_documents_tool`: search the saved document corpus by keyword, type, and date range
-- `search_past_weeks_by_category_tool`: find past weekly snapshots for a specific category
-- `find_similar_spending_weeks_tool`: find historically similar weekly spending patterns
-- `get_recent_anomalies_tool`: retrieve recent large-expense anomalies from historical snapshots
-- `search_reports_tool`: search prior weekly reports for themes, advice, or narrative context
+The document layer converts saved snapshots and reports into a local SQLite document store so the assistants can search historical artifacts later without recomputing everything from the ledger.
 
 ## Historical Documents
 
@@ -226,8 +196,8 @@ Run the regression tests with:
 
 ## Notes And Limitations
 
-- The app currently assumes a Chinese-language reporting workflow.
-- The backend now uses the LangChain v1 agent API and `langchain-openai` for model access, so you should not see the older `ChatOpenAI` deprecation warning anymore.
+- The app currently includes both an analysis assistant and a planner assistant.
+- The backend uses `langchain-openai` for model access in the assistant flows.
 - The app depends on the schema of an Actual Budget SQLite database.
 - This project currently does not implement a true historical retrieval or vector-based RAG layer.
 - Future hardening idea: replace frontend-visible account PIDs with opaque account keys and add backend authorization checks once the app is multi-user.

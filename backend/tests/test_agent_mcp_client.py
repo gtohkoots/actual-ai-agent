@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import backend.agents.mcp_client as mcp_client
+import backend.agents.shared.mcp_client as mcp_client
 
 
 def test_get_resource_payload_decodes_text_resource(monkeypatch):

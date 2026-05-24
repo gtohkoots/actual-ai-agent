@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from backend.agents.analysis_agent import run_analysis_agent_turn
+from backend.agents.analysis.agent import run_analysis_agent_turn
 from backend.services.conversations import append_message
 
 

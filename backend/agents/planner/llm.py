@@ -9,7 +9,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from backend.agents.prompts import PLANNER_AGENT_SYSTEM_PROMPT, build_planner_user_payload
+from backend.agents.planner.prompts import PLANNER_AGENT_SYSTEM_PROMPT, build_planner_user_payload
 
 TURN_INTENT_SYSTEM_PROMPT = """
 You are an intent interpreter for a finance planner assistant.

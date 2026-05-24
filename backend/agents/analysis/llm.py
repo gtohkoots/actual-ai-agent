@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from backend.agents.analysis_context import build_prompt_payload
+from backend.agents.analysis.context import build_prompt_payload
 
 DEFAULT_ACTIONS = [
     "Compare to last week",

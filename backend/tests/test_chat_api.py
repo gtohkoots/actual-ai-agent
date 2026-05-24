@@ -22,9 +22,9 @@ def _stub_retrieval_pack(monkeypatch):
         }
     )
 
-    monkeypatch.setattr("backend.agents.analysis_context.get_transactions_in_date_range", lambda *args, **kwargs: frame.copy())
+    monkeypatch.setattr("backend.agents.analysis.context.get_transactions_in_date_range", lambda *args, **kwargs: frame.copy())
     monkeypatch.setattr(
-        "backend.agents.analysis_context.get_week_rollups",
+        "backend.agents.analysis.context.get_week_rollups",
         lambda *args, **kwargs: {
             "window": {"start": "2026-03-16", "end": "2026-03-22"},
             "summary": {"total_income": 1200.0, "total_expense": 42.5, "net_cashflow": 1157.5},
@@ -33,7 +33,7 @@ def _stub_retrieval_pack(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        "backend.agents.analysis_context.compare_week_over_week",
+        "backend.agents.analysis.context.compare_week_over_week",
         lambda *args, **kwargs: {
             "totals": {
                 "this_week": {"income": 1200.0, "expense": 42.5, "net": 1157.5},
@@ -44,11 +44,11 @@ def _stub_retrieval_pack(monkeypatch):
             "category_changes": [],
         },
     )
-    monkeypatch.setattr("backend.agents.analysis_context.search_past_weeks_by_category", lambda *args, **kwargs: [])
-    monkeypatch.setattr("backend.agents.analysis_context.find_similar_spending_weeks", lambda *args, **kwargs: [])
-    monkeypatch.setattr("backend.agents.analysis_context.get_recent_anomalies", lambda *args, **kwargs: [])
-    monkeypatch.setattr("backend.agents.analysis_context.search_reports", lambda *args, **kwargs: [])
-    monkeypatch.setattr("backend.agents.analysis_context.search_documents", lambda *args, **kwargs: [])
+    monkeypatch.setattr("backend.agents.analysis.context.search_past_weeks_by_category", lambda *args, **kwargs: [])
+    monkeypatch.setattr("backend.agents.analysis.context.find_similar_spending_weeks", lambda *args, **kwargs: [])
+    monkeypatch.setattr("backend.agents.analysis.context.get_recent_anomalies", lambda *args, **kwargs: [])
+    monkeypatch.setattr("backend.agents.analysis.context.search_reports", lambda *args, **kwargs: [])
+    monkeypatch.setattr("backend.agents.analysis.context.search_documents", lambda *args, **kwargs: [])
 
 
 def test_generate_chat_response_returns_structured_fallback(monkeypatch):
@@ -86,7 +86,7 @@ def test_generate_chat_response_falls_back_when_model_call_fails(monkeypatch):
         def invoke(self, messages):
             raise RuntimeError("model unavailable")
 
-    monkeypatch.setattr("backend.agents.analysis_llm.ChatOpenAI", FailingChatOpenAI)
+    monkeypatch.setattr("backend.agents.analysis.llm.ChatOpenAI", FailingChatOpenAI)
 
     response = generate_chat_response(
         ChatRequest(

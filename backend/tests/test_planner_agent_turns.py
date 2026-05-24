@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import backend.agents.planner_agent as planner_agent
+import backend.agents.planner.agent as planner_agent
 
 
 def _missing_payloads():

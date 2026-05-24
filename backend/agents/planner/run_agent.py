@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from backend.agents.planner_agent import run_planner_agent
+from backend.agents.planner.agent import run_planner_agent
 
 
 def build_parser() -> argparse.ArgumentParser:

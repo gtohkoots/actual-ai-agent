@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import backend.agents.llm as planner_llm
+import backend.agents.planner.llm as planner_llm
 
 
 def test_generate_planner_response_uses_deterministic_fallback_without_api_key(monkeypatch):
