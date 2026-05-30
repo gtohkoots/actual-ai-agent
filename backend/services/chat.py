@@ -16,13 +16,16 @@ class ChatMessageInput(BaseModel):
 
 class ChatContext(BaseModel):
     selected_tab: Optional[str] = Field(None, description="Selected UI tab")
-    account_pid: Optional[str] = Field(None, description="Actual account pid")
-    account_name: Optional[str] = Field(None, description="Actual account name")
+    account_pid: Optional[str] = Field(None, description="Current UI account pid")
+    account_name: Optional[str] = Field(None, description="Current UI account name")
     card_label: Optional[str] = Field(None, description="Displayed card label")
     start_date: Optional[str] = Field(None, description="Window start YYYY-MM-DD")
     end_date: Optional[str] = Field(None, description="Window end YYYY-MM-DD")
-    focus_category: Optional[str] = Field(None, description="Optional focus category")
-    focus_payee: Optional[str] = Field(None, description="Optional focus payee")
+    scope_type: Optional[str] = Field(None, description="Explicit analysis scope: portfolio, account, category, or payee")
+    selected_account_pid: Optional[str] = Field(None, description="Explicit selected account pid for analysis scope")
+    selected_account_name: Optional[str] = Field(None, description="Explicit selected account name for analysis scope")
+    selected_category: Optional[str] = Field(None, description="Explicit selected category for analysis scope")
+    selected_payee: Optional[str] = Field(None, description="Explicit selected payee for analysis scope")
 
 
 class ChatRequest(BaseModel):

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.services.dashboard import DashboardOverview, list_accounts, build_dashboard_overview
 from backend.services.chat import ChatRequest, ChatResponse, ConversationThread, generate_chat_response
+from backend.services.analysis_options import list_analysis_categories, list_analysis_payees
 from backend.services.conversations import delete_conversation, list_conversations, load_conversation
 from backend.services.documents import rebuild_document_store, search_documents
 from backend.services.planner_chat import PlannerChatRequest, PlannerChatResponse, generate_planner_chat_response
@@ -57,6 +58,42 @@ def planner_chat(request: PlannerChatRequest) -> PlannerChatResponse:
 @app.get("/api/planner/overview", response_model=PlannerOverviewResponse)
 def planner_overview() -> PlannerOverviewResponse:
     return generate_planner_overview()
+
+
+@app.get("/api/analysis/options/categories")
+def analysis_categories(
+    account_pid: str | None = None,
+    account_name: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict:
+    return {
+        "items": list_analysis_categories(
+            account_pid=account_pid,
+            account_name=account_name,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    }
+
+
+@app.get("/api/analysis/options/payees")
+def analysis_payees(
+    account_pid: str | None = None,
+    account_name: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    limit: int = 50,
+) -> dict:
+    return {
+        "items": list_analysis_payees(
+            account_pid=account_pid,
+            account_name=account_name,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+        )
+    }
 
 
 @app.get("/api/analysis/chat/conversations/{conversation_id}", response_model=ConversationThread)

@@ -189,6 +189,7 @@ function AssistantShell({
           card={card}
           analysisWindow={analysisWindow}
           mode={plannerSelected ? "planner" : "legacy"}
+          layout="shell"
           seedMessage={plannerSelected ? "" : seedMessage}
           seedMessageId={plannerSelected ? "" : seedMessageId}
           onSeedConsumed={plannerSelected ? NOOP : onSeedConsumed}

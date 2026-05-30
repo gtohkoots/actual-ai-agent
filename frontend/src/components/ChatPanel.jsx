@@ -4,7 +4,15 @@ import { Bot, ChevronRight, LoaderCircle, SendHorizontal, Sparkles, WandSparkles
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { deleteChatConversation, fetchChatConversation, fetchChatConversations, sendChatMessage } from "../chat/api";
+import {
+  deleteChatConversation,
+  fetchAnalysisAccounts,
+  fetchAnalysisCategories,
+  fetchAnalysisPayees,
+  fetchChatConversation,
+  fetchChatConversations,
+  sendChatMessage,
+} from "../chat/api";
 import { createWelcomeMessage } from "../chat/mockResponder";
 import {
   deletePlannerConversation,
@@ -15,10 +23,11 @@ import {
 
 const NOOP = () => {};
 
-const CONTEXT_TABS = [
-  { id: "card", label: "Card" },
-  { id: "window", label: "Window" },
-  { id: "focus", label: "Focus" },
+const ANALYSIS_SCOPES = [
+  { id: "portfolio", label: "Overall" },
+  { id: "account", label: "Account" },
+  { id: "category", label: "Category" },
+  { id: "payee", label: "Payee" },
 ];
 
 function createPlannerWelcomeMessage(card, analysisWindow) {
@@ -152,12 +161,14 @@ function ChatPanel({
   card,
   analysisWindow,
   mode = "legacy",
+  layout = "page",
   seedMessage = "",
   seedMessageId = "",
   onSeedConsumed = NOOP,
   onPlannerStateChange = NOOP,
 }) {
   const isPlannerMode = mode === "planner";
+  const isShellLayout = layout === "shell";
   const initialWelcomeMessage = useMemo(
     () => (isPlannerMode ? createPlannerWelcomeMessage(card, analysisWindow) : createWelcomeMessage(card)),
     [analysisWindow, card, isPlannerMode]
@@ -169,7 +180,16 @@ function ChatPanel({
   const [errorMessage, setErrorMessage] = useState("");
   const [isThreadReady, setIsThreadReady] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [activeContextTab, setActiveContextTab] = useState("card");
+  const [helpersOpen, setHelpersOpen] = useState(!isShellLayout);
+  const [analysisScopeType, setAnalysisScopeType] = useState("portfolio");
+  const [selectedAccountPid, setSelectedAccountPid] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedPayee, setSelectedPayee] = useState("");
+  const [availableAccounts, setAvailableAccounts] = useState([]);
+  const [availableCategories, setAvailableCategories] = useState([]);
+  const [availablePayees, setAvailablePayees] = useState([]);
+  const [isLoadingAnalysisOptions, setIsLoadingAnalysisOptions] = useState(false);
+  const [analysisOptionsError, setAnalysisOptionsError] = useState("");
   const [plannerState, setPlannerState] = useState(null);
   const [recentThreads, setRecentThreads] = useState([]);
   const [isLoadingThreads, setIsLoadingThreads] = useState(false);
@@ -193,6 +213,11 @@ function ChatPanel({
     [isPlannerMode]
   );
 
+  const selectedAccount = useMemo(
+    () => availableAccounts.find((item) => item.account_pid === selectedAccountPid) || null,
+    [availableAccounts, selectedAccountPid]
+  );
+
   const chatContext = useMemo(
     () =>
       isPlannerMode
@@ -205,16 +230,29 @@ function ChatPanel({
             end_date: analysisWindow?.end || card.context.windowEnd,
           }
         : {
-            selected_tab: activeContextTab,
+            selected_tab: "analysis",
             account_pid: card.context.accountPid,
             account_name: card.context.accountName || card.context.card,
             card_label: card.name,
             start_date: analysisWindow?.start || card.context.windowStart,
             end_date: analysisWindow?.end || card.context.windowEnd,
-            focus_category: card.context.focus,
-            focus_payee: card.summary.topMerchant,
+            scope_type: analysisScopeType,
+            selected_account_pid: analysisScopeType === "account" ? selectedAccountPid || null : null,
+            selected_account_name: analysisScopeType === "account" ? selectedAccount?.account_name || null : null,
+            selected_category: analysisScopeType === "category" ? selectedCategory || null : null,
+            selected_payee: analysisScopeType === "payee" ? selectedPayee || null : null,
           },
-    [activeContextTab, analysisWindow?.end, analysisWindow?.start, card, isPlannerMode]
+    [
+      analysisScopeType,
+      analysisWindow?.end,
+      analysisWindow?.start,
+      card,
+      isPlannerMode,
+      selectedAccount,
+      selectedAccountPid,
+      selectedCategory,
+      selectedPayee,
+    ]
   );
 
   const activeContextDetails = useMemo(() => {
@@ -230,41 +268,139 @@ function ChatPanel({
       };
     }
 
-    if (activeContextTab === "window") {
-      return {
-        title: analysisWindow?.label || card.context.dateRange,
-        description: "Adjust the calendar to change the analysis window for the dashboard and the assistant.",
-        prompts: [
-          `Summarize this window for ${card.name}`,
-          "Compare this window to the prior period",
-          "What changed most in this window?",
-        ],
-      };
-    }
-
-    if (activeContextTab === "focus") {
-      return {
-        title: `${card.summary.topCategory} · ${card.summary.topMerchant}`,
-        description: "Focus on the strongest spending signal or the merchant driving the current card activity.",
-        prompts: [
-          `Explain ${card.summary.topCategory} spend`,
-          `Why is ${card.summary.topMerchant} so prominent?`,
-          "Look for unusual or recurring charges",
-        ],
-      };
-    }
-
     return {
-      title: card.name,
-      description: `Current balance ${card.summary.totalSpend} and cycle spend anchored to the selected card.`,
-      prompts: card.quickPrompts.slice(0, 3),
+      title: "Analysis workspace",
+      description: "Ask about trends, changes, concentrations, or unusual spending and I’ll pull the right evidence.",
+      prompts: [
+        `How is spending trending for ${analysisWindow?.label || "this window"}?`,
+        "What changed most versus the prior period?",
+        "Where is spending concentrating the most?",
+      ],
     };
-  }, [activeContextTab, analysisWindow?.label, card, isPlannerMode]);
+  }, [analysisWindow?.label, isPlannerMode]);
 
   const plannerStatusView = useMemo(
     () => (isPlannerMode ? buildPlannerStatusView(plannerState) : null),
     [isPlannerMode, plannerState]
   );
+
+  const analysisScopeLabel = useMemo(
+    () => ANALYSIS_SCOPES.find((item) => item.id === analysisScopeType)?.label || "Overall",
+    [analysisScopeType]
+  );
+
+  const analysisContextLine = useMemo(() => {
+    if (isPlannerMode) return "";
+
+    const scopeSummary =
+      analysisScopeType === "account"
+        ? selectedAccount?.account_name || "Account"
+        : analysisScopeType === "category"
+          ? selectedCategory || "Category"
+          : analysisScopeType === "payee"
+            ? selectedPayee || "Payee"
+            : "All accounts";
+
+    return `${scopeSummary} · ${analysisWindow?.label || card.context.dateRange}`;
+  }, [
+    analysisScopeType,
+    analysisWindow?.label,
+    card.context.dateRange,
+    isPlannerMode,
+    selectedAccount?.account_name,
+    selectedCategory,
+    selectedPayee,
+  ]);
+
+  const shellSummary = useMemo(() => {
+    if (isPlannerMode) {
+      return plannerStatusView?.period
+        ? `${plannerStatusView.title} · ${plannerStatusView.period}`
+        : plannerStatusView?.title || "Planner tools ready";
+    }
+    return analysisContextLine || activeContextDetails.title;
+  }, [activeContextDetails.title, analysisContextLine, isPlannerMode, plannerStatusView]);
+
+  useEffect(() => {
+    setHelpersOpen(!isShellLayout);
+  }, [isShellLayout, mode]);
+
+  useEffect(() => {
+    if (isPlannerMode || !["account", "category", "payee"].includes(analysisScopeType)) {
+      setAnalysisOptionsError("");
+      setIsLoadingAnalysisOptions(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadAnalysisOptions() {
+      setIsLoadingAnalysisOptions(true);
+      setAnalysisOptionsError("");
+      try {
+        if (analysisScopeType === "account") {
+          const items = await fetchAnalysisAccounts();
+          if (!cancelled) {
+            setAvailableAccounts(items);
+            setSelectedAccountPid((current) => {
+              if (current && items.some((item) => item.account_pid === current)) {
+                return current;
+              }
+              return items.find((item) => item.account_pid === card.context.accountPid)?.account_pid || items[0]?.account_pid || "";
+            });
+          }
+        } else if (analysisScopeType === "category") {
+          const items = await fetchAnalysisCategories({
+            accountPid: card.context.accountPid,
+            accountName: card.context.accountName || card.context.card,
+            startDate: analysisWindow?.start || card.context.windowStart,
+            endDate: analysisWindow?.end || card.context.windowEnd,
+          });
+          if (!cancelled) {
+            setAvailableCategories(items);
+            setSelectedCategory((current) => (current && items.includes(current) ? current : items[0] || ""));
+          }
+        } else {
+          const items = await fetchAnalysisPayees({
+            accountPid: card.context.accountPid,
+            accountName: card.context.accountName || card.context.card,
+            startDate: analysisWindow?.start || card.context.windowStart,
+            endDate: analysisWindow?.end || card.context.windowEnd,
+            limit: 50,
+          });
+          if (!cancelled) {
+            setAvailablePayees(items);
+            setSelectedPayee((current) => (current && items.includes(current) ? current : items[0] || ""));
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setAnalysisOptionsError(error instanceof Error ? error.message : "Failed to load analysis options");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingAnalysisOptions(false);
+        }
+      }
+    }
+
+    void loadAnalysisOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, [analysisScopeType, analysisWindow?.end, analysisWindow?.start, card, isPlannerMode]);
+
+  useEffect(() => {
+    if (analysisScopeType !== "account") {
+      setSelectedAccountPid("");
+    }
+    if (analysisScopeType !== "category") {
+      setSelectedCategory("");
+    }
+    if (analysisScopeType !== "payee") {
+      setSelectedPayee("");
+    }
+  }, [analysisScopeType]);
 
   useEffect(() => {
     let cancelled = false;
@@ -274,9 +410,16 @@ function ChatPanel({
       setDraft("");
       setIsSending(false);
       setErrorMessage("");
+      setAnalysisOptionsError("");
       setIsThreadReady(false);
       setHistoryOpen(false);
-      setActiveContextTab("card");
+      setAnalysisScopeType("portfolio");
+      setSelectedAccountPid("");
+      setSelectedCategory("");
+      setSelectedPayee("");
+      setAvailableAccounts([]);
+      setAvailableCategories([]);
+      setAvailablePayees([]);
       setPlannerState(null);
 
       const savedConversationId = window.localStorage.getItem(storageKey);
@@ -368,7 +511,7 @@ function ChatPanel({
   async function handleSubmit(event) {
     event.preventDefault();
     const text = draft.trim();
-    if (!text || isSending) return;
+    if (!text || isSending || isScopeSelectionIncomplete) return;
     await submitMessage(text);
   }
 
@@ -379,7 +522,7 @@ function ChatPanel({
 
     event.preventDefault();
     const text = draft.trim();
-    if (!text || isSending) return;
+    if (!text || isSending || isScopeSelectionIncomplete) return;
     await submitMessage(text);
   }
 
@@ -419,6 +562,10 @@ function ChatPanel({
   }
 
   async function submitMessage(text) {
+    if (isScopeSelectionIncomplete) {
+      return;
+    }
+
     const userMessage = {
       id: `user-${Date.now()}`,
       role: "user",
@@ -436,7 +583,7 @@ function ChatPanel({
       status: "thinking",
       content: isPlannerMode
         ? "Reviewing planner context, budget state, and any required tool calls..."
-        : "Retrieving relevant card context and historical signals...",
+        : "Planning the best analysis route and collecting the right evidence...",
       sources: [],
       actions: [],
     };
@@ -515,7 +662,7 @@ function ChatPanel({
   }
 
   function handlePlannerQuickAction(action) {
-    if (!action || isSending) return;
+    if (!action || isSending || isScopeSelectionIncomplete) return;
     if (action.type === "compose") {
       setDraft((current) => current || action.prompt);
       textareaRef.current?.focus();
@@ -524,166 +671,269 @@ function ChatPanel({
     void submitMessage(action.prompt);
   }
 
+  const showHelperSection = !isShellLayout || helpersOpen;
+  const rootClassName = `panel chat-panel ${isShellLayout ? "chat-panel--shell" : "chat-panel--page"}`;
+  const helperButtonLabel = helpersOpen ? "Hide helpers" : "Show helpers";
+  const isScopeSelectionIncomplete = !isPlannerMode && ((analysisScopeType === "account" && !selectedAccountPid) || (analysisScopeType === "category" && !selectedCategory) || (analysisScopeType === "payee" && !selectedPayee));
+
   return (
-    <aside className="panel chat-panel">
-      <div className="panel-header">
+    <aside className={rootClassName}>
+      <div className="panel-header chat-panel__header">
         <div>
-          <p className="section-label">{isPlannerMode ? "Planner Agent" : "AI Copilot"}</p>
+          <p className="section-label">{isPlannerMode ? "Planner Agent" : "Analysis Agent"}</p>
           <h3>{isPlannerMode ? "Planner chat" : "Finance chat"}</h3>
         </div>
         <div className="chat-header-actions">
+          {isShellLayout ? (
+            <button className="ghost-button chat-mini-button" type="button" onClick={() => setHelpersOpen((current) => !current)}>
+              {helperButtonLabel}
+            </button>
+          ) : null}
           <button className="ghost-button chat-mini-button" type="button" onClick={() => setHistoryOpen((current) => !current)}>
             History
           </button>
-          <span className="panel-note">
+          <span className="panel-note chat-live-pill">
             <Sparkles size={14} /> Live
           </span>
         </div>
       </div>
 
-      {!isPlannerMode ? (
-        <div className="chat-context compact">
-          {CONTEXT_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              className={`chat-context-chip chat-context-chip--button ${activeContextTab === tab.id ? "active" : ""}`}
-              type="button"
-              onClick={() => setActiveContextTab(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
+      {isShellLayout ? (
+        <div className="chat-shell-summary">
+          <strong>{shellSummary}</strong>
+          <span>{activeContextDetails.description}</span>
         </div>
       ) : null}
 
-      <div className="chat-context-detail">
-        <strong>{activeContextDetails.title}</strong>
-        <span>{activeContextDetails.description}</span>
-      </div>
-
-      <div className="chat-slim-prompts">
-        {activeContextDetails.prompts.slice(0, 3).map((prompt) => (
-          <button key={prompt} className="suggestion-chip suggestion-chip--slim" type="button" onClick={() => handleQuickPrompt(prompt)}>
-            <WandSparkles size={14} />
-            {prompt}
-          </button>
-        ))}
-      </div>
-
-      {isPlannerMode && plannerStatusView ? (
-        <div className="planner-state-card">
-          <div className="planner-state-header">
-            <div>
-              <p className="section-label">{plannerStatusView.eyebrow}</p>
-              <strong>{plannerStatusView.title}</strong>
+      {showHelperSection ? (
+        <div className={`chat-helper-stack ${isShellLayout ? "chat-helper-stack--shell" : ""}`}>
+          {isPlannerMode ? (
+            <div className="chat-context-detail">
+              <strong>{activeContextDetails.title}</strong>
+              <span>{activeContextDetails.description}</span>
             </div>
-            {plannerStatusView.period ? (
-              <span className="planner-state-badge">{plannerStatusView.period}</span>
-            ) : null}
-          </div>
-          <p className="panel-note">{plannerStatusView.description}</p>
+          ) : (
+            <div className="analysis-current-context">
+              <strong>Current context</strong>
+              <span>{analysisContextLine}</span>
+            </div>
+          )}
 
-          {plannerStatusView.savings || plannerStatusView.targetCount ? (
-            <div className="planner-state-metrics">
-              {plannerStatusView.savings ? (
-                <div className="planner-state-metric">
-                  <span>Savings target</span>
-                  <strong>{plannerStatusView.savings}</strong>
+          {!isPlannerMode ? (
+            <div className={`analysis-scope-card ${isShellLayout ? "analysis-scope-card--shell" : ""}`}>
+              <div className="analysis-scope-card__header">
+                <div>
+                  <strong>Analysis scope</strong>
+                  <span>Choose whether to analyze overall activity, this account, a category, or a payee.</span>
                 </div>
+                <span className="analysis-scope-card__badge">{analysisScopeLabel}</span>
+              </div>
+              <div className="analysis-scope-pills" role="tablist" aria-label="Analysis scope">
+                {ANALYSIS_SCOPES.map((scope) => (
+                  <button
+                    key={scope.id}
+                    className={`chat-context-chip chat-context-chip--button ${analysisScopeType === scope.id ? "active" : ""}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={analysisScopeType === scope.id}
+                    onClick={() => setAnalysisScopeType(scope.id)}
+                  >
+                    {scope.label}
+                  </button>
+                ))}
+              </div>
+              {analysisScopeType === "account" ? (
+                <label className="analysis-scope-field">
+                  <span>Account</span>
+                  <select value={selectedAccountPid} onChange={(event) => setSelectedAccountPid(event.target.value)} disabled={isLoadingAnalysisOptions}>
+                    {availableAccounts.length ? (
+                      availableAccounts.map((item) => (
+                        <option key={item.account_pid} value={item.account_pid}>
+                          {item.account_name}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">{isLoadingAnalysisOptions ? "Loading accounts..." : "No accounts available"}</option>
+                    )}
+                  </select>
+                </label>
               ) : null}
-              {plannerStatusView.targetCount ? (
-                <div className="planner-state-metric">
-                  <span>Budget targets</span>
-                  <strong>{plannerStatusView.targetCount}</strong>
-                </div>
+              {analysisScopeType === "category" ? (
+                <label className="analysis-scope-field">
+                  <span>Category</span>
+                  <select value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value)} disabled={isLoadingAnalysisOptions}>
+                    {availableCategories.length ? (
+                      availableCategories.map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">{isLoadingAnalysisOptions ? "Loading categories..." : "No categories available"}</option>
+                    )}
+                  </select>
+                </label>
               ) : null}
+              {analysisScopeType === "payee" ? (
+                <label className="analysis-scope-field">
+                  <span>Payee</span>
+                  <select value={selectedPayee} onChange={(event) => setSelectedPayee(event.target.value)} disabled={isLoadingAnalysisOptions}>
+                    {availablePayees.length ? (
+                      availablePayees.map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">{isLoadingAnalysisOptions ? "Loading payees..." : "No payees available"}</option>
+                    )}
+                  </select>
+                </label>
+              ) : null}
+              {analysisOptionsError ? <span className="analysis-scope-card__error">{analysisOptionsError}</span> : null}
             </div>
           ) : null}
 
-          {plannerStatusView.targetRows.length ? (
-            <div className="planner-state-targets">
-              {plannerStatusView.targetRows.map((item) => (
-                <div key={`${item.category}-${item.amount}`} className="planner-state-target-row">
-                  <span>{item.category}</span>
-                  <strong>{item.amount}</strong>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="planner-state-actions">
-            {plannerStatusView.actions.map((action) => (
-              <button
-                key={action.id}
-                className={`suggestion-chip ${action.id === "approve" ? "planner-state-action--primary" : ""}`}
-                type="button"
-                onClick={() => handlePlannerQuickAction(action)}
-              >
+          <div className="chat-slim-prompts">
+            {activeContextDetails.prompts.slice(0, isShellLayout ? 2 : 3).map((prompt) => (
+              <button key={prompt} className="suggestion-chip suggestion-chip--slim" type="button" onClick={() => handleQuickPrompt(prompt)}>
                 <WandSparkles size={14} />
-                {action.label}
+                {prompt}
               </button>
             ))}
           </div>
+
+          {isPlannerMode && plannerStatusView ? (
+            <div className={`planner-state-card ${isShellLayout ? "planner-state-card--shell" : ""}`}>
+              <div className="planner-state-header">
+                <div>
+                  <p className="section-label">{plannerStatusView.eyebrow}</p>
+                  <strong>{plannerStatusView.title}</strong>
+                </div>
+                {plannerStatusView.period ? <span className="planner-state-badge">{plannerStatusView.period}</span> : null}
+              </div>
+              <p className="panel-note">{plannerStatusView.description}</p>
+
+              {plannerStatusView.savings || plannerStatusView.targetCount ? (
+                <div className="planner-state-metrics">
+                  {plannerStatusView.savings ? (
+                    <div className="planner-state-metric">
+                      <span>Savings target</span>
+                      <strong>{plannerStatusView.savings}</strong>
+                    </div>
+                  ) : null}
+                  {plannerStatusView.targetCount ? (
+                    <div className="planner-state-metric">
+                      <span>Budget targets</span>
+                      <strong>{plannerStatusView.targetCount}</strong>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {plannerStatusView.targetRows.length ? (
+                <div className="planner-state-targets">
+                  {plannerStatusView.targetRows.map((item) => (
+                    <div key={`${item.category}-${item.amount}`} className="planner-state-target-row">
+                      <span>{item.category}</span>
+                      <strong>{item.amount}</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="planner-state-actions">
+                {plannerStatusView.actions.map((action) => (
+                  <button
+                    key={action.id}
+                    className={`suggestion-chip ${action.id === "approve" ? "planner-state-action--primary" : ""}`}
+                    type="button"
+                    onClick={() => handlePlannerQuickAction(action)}
+                  >
+                    <WandSparkles size={14} />
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       <div className="chat-feed" ref={feedRef}>
-        {messages.map((message) => (
-          <article key={message.id} className={`chat-message ${message.role}`}>
-            <div className="chat-message-head">
-              <div className="chat-role">
-                <span className="chat-avatar">{message.role === "assistant" ? <Bot size={14} /> : "You"}</span>
-                <strong>{message.role === "assistant" ? (isPlannerMode ? "Planner Agent" : "Finance Copilot") : "You"}</strong>
-              </div>
-              {message.status === "thinking" ? (
-                <span className="chat-status">
-                  <LoaderCircle size={14} className="spin" />
-                  Thinking
-                </span>
-              ) : null}
-            </div>
+        {messages.map((message) => {
+          const isUserMessage = message.role === "user";
+          const rowClassName = `chat-row chat-row--${message.role}`;
+          const messageClassName = `chat-message chat-message--${message.role} ${isShellLayout ? "chat-message--shell" : "chat-message--page"}`;
 
-            <div className="chat-content">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
-            </div>
+          return (
+            <div key={message.id} className={rowClassName}>
+              <article className={messageClassName}>
+                {isUserMessage ? (
+                  <div className="chat-message-meta chat-message-meta--user">
+                    <span>You</span>
+                  </div>
+                ) : (
+                  <div className="chat-message-head">
+                    <div className="chat-role">
+                      <span className="chat-avatar"><Bot size={14} /></span>
+                      <div className="chat-role-copy">
+                        <strong>{isPlannerMode ? "Planner Agent" : "Finance Copilot"}</strong>
+                        <span>{isPlannerMode ? "Budget guidance and approvals" : "Analysis grounded in tool results"}</span>
+                      </div>
+                    </div>
+                    {message.status === "thinking" ? (
+                      <span className="chat-status">
+                        <LoaderCircle size={14} className="spin" />
+                        Thinking
+                      </span>
+                    ) : null}
+                  </div>
+                )}
 
-            {message.actions?.length ? (
-              <div className="chat-actions compact">
-                {message.actions.slice(0, 3).map((action) => (
-                  <button
-                    key={`${message.id}-${action}`}
-                    className="action-chip"
-                    type="button"
-                    onClick={() => handleActionChip(action)}
-                  >
-                    {action}
-                    <ChevronRight size={14} />
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </article>
-        ))}
+                <div className="chat-content">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                </div>
+
+                {!isUserMessage && message.actions?.length ? (
+                  <div className="chat-actions compact">
+                    {message.actions.slice(0, isShellLayout ? 2 : 3).map((action) => (
+                      <button
+                        key={`${message.id}-${action}`}
+                        className="action-chip"
+                        type="button"
+                        onClick={() => handleActionChip(action)}
+                      >
+                        {action}
+                        <ChevronRight size={14} />
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            </div>
+          );
+        })}
       </div>
 
-      <form className="chat-form chat-form--sticky" onSubmit={handleSubmit}>
-        <label className="sr-only" htmlFor="chatInput">
+      <form className={`chat-form ${isShellLayout ? "chat-form--shell" : "chat-form--sticky"}`} onSubmit={handleSubmit}>
+        <label className="sr-only" htmlFor={`chatInput-${layout}-${mode}`}>
           Chat input
         </label>
         <textarea
           ref={textareaRef}
-          id="chatInput"
+          id={`chatInput-${layout}-${mode}`}
           rows="2"
-          placeholder={isPlannerMode ? "Ask to create, revise, review, or approve a budget..." : "Ask about this card or a specific transaction..."}
+          placeholder={isPlannerMode ? "Ask to create, revise, review, or approve a budget..." : "Ask about your finances, a category, or a merchant..."}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={handleComposerKeyDown}
         />
         <div className="chat-form-footer">
           <span className="panel-note">
-            {isPlannerMode ? "Planner turns stay tied to this budgeting conversation." : "Responses stay tied to this card."}
+{isPlannerMode ? "Planner turns stay tied to this budgeting conversation." : isScopeSelectionIncomplete ? "Pick a category or payee before sending this scoped analysis." : "Analysis turns stay tied to this account conversation."}
           </span>
-          <button className="primary-button" type="submit" disabled={isSending}>
+          <button className="primary-button" type="submit" disabled={isSending || isScopeSelectionIncomplete}>
             <SendHorizontal size={16} />
             Send
           </button>
@@ -727,7 +977,7 @@ function ChatPanel({
               ))
             ) : (
               <p className="panel-note">
-                {isPlannerMode ? "No saved planner conversations for this account yet." : "No saved conversations for this card yet."}
+                {isPlannerMode ? "No saved planner conversations for this account yet." : "No saved conversations for this account yet."}
               </p>
             )}
           </div>

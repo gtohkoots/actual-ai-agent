@@ -818,6 +818,16 @@ function App() {
             </div>
           </article>
         </section>
+
+        <section className="transactions-and-chat">
+          <ChatPanel
+            card={selectedCard}
+            analysisWindow={selectedWindow}
+            seedMessage={assistantSeed?.text || ""}
+            seedMessageId={assistantSeed?.id || ""}
+            onSeedConsumed={clearAssistantSeed}
+          />
+        </section>
       </>
     );
   }

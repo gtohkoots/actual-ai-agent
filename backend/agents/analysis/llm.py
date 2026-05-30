@@ -108,9 +108,9 @@ def _fallback_heading(request: Any, analysis_request: Dict[str, Any]) -> str:
     if scope == "account":
         return getattr(request.context, "card_label", None) or getattr(request.context, "account_name", None) or "Selected account"
     if scope == "category":
-        return analysis_request.get("entity", {}).get("category") or getattr(request.context, "focus_category", None) or "Selected category"
+        return analysis_request.get("entity", {}).get("category") or getattr(request.context, "selected_category", None) or "Selected category"
     if scope == "payee":
-        return analysis_request.get("entity", {}).get("payee") or getattr(request.context, "focus_payee", None) or "Selected payee"
+        return analysis_request.get("entity", {}).get("payee") or getattr(request.context, "selected_payee", None) or "Selected payee"
     return "Overall finances"
 
 

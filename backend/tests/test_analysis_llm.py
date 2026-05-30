@@ -13,8 +13,8 @@ def _request():
         context=SimpleNamespace(
             card_label="Visa",
             account_name="Visa",
-            focus_category=None,
-            focus_payee=None,
+            selected_category=None,
+            selected_payee=None,
             model_dump=lambda: {"card_label": "Visa"},
         ),
     )

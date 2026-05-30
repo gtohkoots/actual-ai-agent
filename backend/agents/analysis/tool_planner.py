@@ -36,17 +36,120 @@ def _previous_matching_window(period_start: str, period_end: str) -> tuple[str, 
     return baseline_start.isoformat(), baseline_end.isoformat()
 
 
-def _account_scope_args(context: Any, scope: str, entity: Dict[str, Any]) -> Dict[str, Any]:
-    if scope != "account":
-        return {}
+def _context_account_args(context: Any, entity: Dict[str, Any]) -> Dict[str, Any]:
     return {
         key: value
         for key, value in {
-            "account_pid": entity.get("account_pid") or getattr(context, "account_pid", None),
-            "account_name": entity.get("account_name") or getattr(context, "account_name", None),
+            "account_pid": entity.get("account_pid") or getattr(context, "selected_account_pid", None) or getattr(context, "account_pid", None),
+            "account_name": entity.get("account_name") or getattr(context, "selected_account_name", None) or getattr(context, "account_name", None),
         }.items()
         if value
     }
+
+
+def _transaction_account_args(account_args: Dict[str, Any]) -> Dict[str, Any]:
+    if account_args.get("account_name"):
+        return {"account_name": account_args["account_name"]}
+    return {}
+
+
+def _portfolio_summary_call(window_start: str, window_end: str, account_args: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "tool": "get_portfolio_summary",
+        "args": {"period_start": window_start, "period_end": window_end, **account_args},
+    }
+
+
+def _category_spend_call(window_start: str, window_end: str, account_args: Dict[str, Any], *, limit: int = 8) -> Dict[str, Any]:
+    return {
+        "tool": "get_category_spend",
+        "args": {"period_start": window_start, "period_end": window_end, "limit": limit, **account_args},
+    }
+
+
+def _comparison_call(window_start: str, window_end: str, prev_start: str, prev_end: str) -> Dict[str, Any]:
+    return {
+        "tool": "compare_periods",
+        "args": {
+            "current_start": window_start,
+            "current_end": window_end,
+            "previous_start": prev_start,
+            "previous_end": prev_end,
+        },
+    }
+
+
+def _transaction_slice_call(
+    window_start: str,
+    window_end: str,
+    *,
+    category_name: str | None = None,
+    payee: str | None = None,
+    account_args: Dict[str, Any],
+    limit: int = 25,
+) -> Dict[str, Any]:
+    return {
+        "tool": "get_transaction_slice",
+        "args": {
+            "period_start": window_start,
+            "period_end": window_end,
+            "limit": limit,
+            **({"category_name": category_name} if category_name else {}),
+            **({"payee": payee} if payee else {}),
+            **_transaction_account_args(account_args),
+        },
+    }
+
+
+def _category_scope_plan(intent: str, category_name: str | None, window_start: str, window_end: str, prev_start: str, prev_end: str, account_args: Dict[str, Any]) -> List[Dict[str, Any]]:
+    tool_calls: List[Dict[str, Any]] = []
+    if intent == "comparison":
+        tool_calls.append(_comparison_call(window_start, window_end, prev_start, prev_end))
+    elif intent == "anomaly_review":
+        tool_calls.append({"tool": "detect_spending_anomalies", "args": {"period_start": window_start, "period_end": window_end}})
+        if category_name:
+            tool_calls.append({"tool": "get_recent_anomalies", "args": {"category": category_name, "limit": 5}})
+    elif intent == "cashflow_review":
+        tool_calls.append(_portfolio_summary_call(window_start, window_end, account_args))
+
+    tool_calls.append(_category_spend_call(window_start, window_end, account_args))
+    tool_calls.append(
+        _transaction_slice_call(
+            window_start,
+            window_end,
+            category_name=category_name,
+            account_args=account_args,
+            limit=25,
+        )
+    )
+    if category_name:
+        tool_calls.append({"tool": "search_past_weeks_by_category", "args": {"category": category_name, "limit": 5}})
+    return tool_calls
+
+
+def _payee_scope_plan(intent: str, payee: str | None, window_start: str, window_end: str, prev_start: str, prev_end: str, account_args: Dict[str, Any]) -> List[Dict[str, Any]]:
+    tool_calls: List[Dict[str, Any]] = []
+    if intent == "comparison":
+        tool_calls.append(_comparison_call(window_start, window_end, prev_start, prev_end))
+    elif intent == "anomaly_review":
+        tool_calls.append({"tool": "detect_spending_anomalies", "args": {"period_start": window_start, "period_end": window_end}})
+        if payee:
+            tool_calls.append({"tool": "get_recent_anomalies", "args": {"payee": payee, "limit": 5}})
+    elif intent == "cashflow_review":
+        tool_calls.append(_portfolio_summary_call(window_start, window_end, account_args))
+    elif intent == "trend_review" and payee:
+        tool_calls.append({"tool": "search_reports", "args": {"query": payee, "start_date": window_start, "end_date": window_end, "limit": 5}})
+
+    tool_calls.append(
+        _transaction_slice_call(
+            window_start,
+            window_end,
+            payee=payee,
+            account_args=account_args,
+            limit=25,
+        )
+    )
+    return tool_calls
 
 
 def _fallback_tool_plan(request: Any, analysis_request: Dict[str, Any]) -> Dict[str, Any]:
@@ -56,32 +159,28 @@ def _fallback_tool_plan(request: Any, analysis_request: Dict[str, Any]) -> Dict[
     entity = dict(analysis_request.get("entity", {}))
     window_start, window_end = _resolve_window(context)
     prev_start, prev_end = _previous_matching_window(window_start, window_end)
-    account_args = _account_scope_args(context, scope, entity)
+    account_args = _context_account_args(context, entity)
 
     tool_calls: List[Dict[str, Any]] = []
 
-    if intent == "summary":
+    if scope == "payee":
+        tool_calls = _payee_scope_plan(intent, entity.get("payee") or getattr(context, "selected_payee", None), window_start, window_end, prev_start, prev_end, account_args)
+    elif scope == "category":
+        tool_calls = _category_scope_plan(intent, entity.get("category") or getattr(context, "selected_category", None), window_start, window_end, prev_start, prev_end, account_args)
+    elif intent == "summary":
         tool_calls = [
-            {"tool": "get_portfolio_summary", "args": {"period_start": window_start, "period_end": window_end, **account_args}},
-            {"tool": "get_category_spend", "args": {"period_start": window_start, "period_end": window_end, "limit": 8, **account_args}},
+            _portfolio_summary_call(window_start, window_end, account_args if scope == "account" else {}),
+            _category_spend_call(window_start, window_end, account_args if scope == "account" else {}),
         ]
     elif intent == "comparison":
         tool_calls = [
-            {
-                "tool": "compare_periods",
-                "args": {
-                    "current_start": window_start,
-                    "current_end": window_end,
-                    "previous_start": prev_start,
-                    "previous_end": prev_end,
-                },
-            },
-            {"tool": "get_category_spend", "args": {"period_start": window_start, "period_end": window_end, "limit": 8, **account_args}},
+            _comparison_call(window_start, window_end, prev_start, prev_end),
+            _category_spend_call(window_start, window_end, account_args if scope == "account" else {}),
         ]
     elif intent == "trend_review":
         tool_calls = [
             {"tool": "get_spending_drift", "args": {"period_start": window_start, "period_end": window_end}},
-            {"tool": "get_category_spend", "args": {"period_start": window_start, "period_end": window_end, "limit": 8, **account_args}},
+            _category_spend_call(window_start, window_end, account_args if scope == "account" else {}),
         ]
     elif intent == "anomaly_review":
         tool_calls = [
@@ -90,30 +189,14 @@ def _fallback_tool_plan(request: Any, analysis_request: Dict[str, Any]) -> Dict[
         ]
     elif intent == "cashflow_review":
         tool_calls = [
-            {"tool": "get_portfolio_summary", "args": {"period_start": window_start, "period_end": window_end, **account_args}},
+            _portfolio_summary_call(window_start, window_end, account_args if scope == "account" else {}),
             {"tool": "get_account_breakdown", "args": {"period_start": window_start, "period_end": window_end}},
         ]
     elif intent == "category_deep_dive":
-        category_name = entity.get("category") or getattr(context, "focus_category", None)
-        tool_calls = [
-            {"tool": "get_category_spend", "args": {"period_start": window_start, "period_end": window_end, "limit": 8, **account_args}},
-            {
-                "tool": "get_transaction_slice",
-                "args": {
-                    "period_start": window_start,
-                    "period_end": window_end,
-                    "category_name": category_name,
-                    "limit": 25,
-                    **({"account_name": account_args["account_name"]} if account_args.get("account_name") else {}),
-                },
-            },
-        ]
-        if category_name:
-            tool_calls.append({"tool": "search_past_weeks_by_category", "args": {"category": category_name, "limit": 5}})
+        category_name = entity.get("category") or getattr(context, "selected_category", None)
+        tool_calls = _category_scope_plan(intent, category_name, window_start, window_end, prev_start, prev_end, account_args)
     else:
-        tool_calls = [
-            {"tool": "get_portfolio_summary", "args": {"period_start": window_start, "period_end": window_end, **account_args}},
-        ]
+        tool_calls = [_portfolio_summary_call(window_start, window_end, account_args if scope == "account" else {})]
 
     return {
         "scope": scope,
