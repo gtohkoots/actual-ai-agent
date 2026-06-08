@@ -326,7 +326,7 @@ def _portfolio_overview(start_date: str, end_date: str, db_path: Optional[str] =
         debug=False,
     )
     analytics_frame = filter_internal_transfer_rows(frame)
-    rollups = get_week_rollups(start_date, end_date, df=frame)
+    rollups = get_week_rollups(start_date, end_date, df=analytics_frame)
     current_income = float(rollups["summary"]["total_income"])
     current_expense = float(rollups["summary"]["total_expense"])
     net_cashflow = float(rollups["summary"]["net_cashflow"])

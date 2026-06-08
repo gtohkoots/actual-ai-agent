@@ -1,5 +1,6 @@
 pandas
 openai
+certifi
 langchain>=1.0.0
 langchain-openai>=1.1.11
 fastmcp

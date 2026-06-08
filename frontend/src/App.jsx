@@ -1,20 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, CreditCard, LayoutDashboard, MessageCircle, PiggyBank, TrendingUp } from "lucide-react";
+import { ChartPie, ChevronLeft, ChevronRight, CreditCard, LayoutDashboard, MessageCircle, PiggyBank, RefreshCw, TrendingUp, Upload } from "lucide-react";
 import { DayPicker } from "react-day-picker";
 import { startOfMonth, subDays } from "date-fns";
 import "react-day-picker/style.css";
 import {
+  Bar,
+  BarChart,
   Cell,
   Pie,
   PieChart,
   ResponsiveContainer,
   Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
 
 import AssistantShell from "./components/AssistantShell";
 import ChatPanel from "./components/ChatPanel";
 import CollapsiblePanel from "./components/CollapsiblePanel";
 import { fetchAccounts, fetchDashboardOverview } from "./api/dashboard";
+import {
+  fetchIndustryExposure,
+  fetchInvestmentsOverview,
+  fetchSingleNameExposure,
+  importFidelityPositionsCsv,
+  refreshIndustryExposure,
+  refreshInvestmentExposure,
+} from "./investments/api";
 import { fetchPlannerOverview } from "./planner/api";
 
 const railNavItems = [
@@ -22,6 +34,7 @@ const railNavItems = [
   { label: "Card Details", icon: CreditCard, tab: "Card Details" },
   { label: "Spending Analysis", icon: TrendingUp, tab: "Spending Analysis" },
   { label: "Budgeting", icon: PiggyBank, tab: "Budgeting Goals" },
+  { label: "Investment", icon: ChartPie, tab: "Investment" },
 ];
 const PLANNER_BUCKET_OPTIONS = [
   { id: "inflow", label: "Inflow", description: "Counts as income for budget planning and can raise the total budget cap." },
@@ -67,6 +80,7 @@ const CARD_TINTS = [
   "linear-gradient(135deg, #1b2c55 0%, #0d1425 100%)",
   "linear-gradient(135deg, #5a3d18 0%, #2f1c08 100%)",
 ];
+const INVESTMENT_COLORS = ["#1f5c4d", "#aa7d2d", "#a04b2f", "#214d73", "#7d5ba6", "#5a3d18", "#6f8e6d", "#8a6250"];
 
 function currency(value) {
   return new Intl.NumberFormat("en-US", {
@@ -74,6 +88,31 @@ function currency(value) {
     currency: "USD",
     maximumFractionDigits: 2,
   }).format(value || 0);
+}
+
+function signedCurrency(value) {
+  const amount = Number(value || 0);
+  return `${amount >= 0 ? "+" : ""}${currency(amount)}`;
+}
+
+function signedPercent(value) {
+  const amount = Number(value || 0);
+  return `${amount >= 0 ? "+" : ""}${amount.toFixed(2)}%`;
+}
+
+function gainTone(value) {
+  return Number(value || 0) >= 0 ? "is-positive" : "is-negative";
+}
+
+function formatSnapshotTimestamp(value) {
+  if (!value) return "Not imported yet";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function formatLocalDate(date) {
@@ -131,6 +170,61 @@ function SimpleListTooltip({ active, payload }) {
         </span>
       ))}
     </div>
+  );
+}
+
+function ExposureTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const item = payload[0]?.payload;
+  if (!item) return null;
+
+  return (
+    <div className="chart-tooltip investment-exposure-tooltip">
+      <strong>{item.symbol} · {item.name || "Single-name exposure"}</strong>
+      <span>{currency(item.exposure_value)} · {Number(item.percent_of_portfolio || 0).toFixed(2)}% of portfolio</span>
+      {(item.contributions || []).slice(0, 4).map((contribution) => (
+        <span key={`${item.symbol}-${contribution.source_symbol}`}>
+          {contribution.source_symbol}: {currency(contribution.exposure_value)} from {Number(contribution.weight_percent || 0).toFixed(2)}%
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function IndustryTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const item = payload[0]?.payload;
+  if (!item) return null;
+
+  return (
+    <div className="chart-tooltip investment-exposure-tooltip">
+      <strong>{item.industry}</strong>
+      <span>{item.sector} · {Number(item.percent_of_portfolio || 0).toFixed(2)}% · {currency(item.exposure_value)}</span>
+      {(item.top_companies || []).slice(0, 4).map((company) => (
+        <span key={`${item.industry}-${company.symbol}`}>
+          {company.symbol}: {Number(company.percent_of_portfolio || 0).toFixed(2)}% · {currency(company.exposure_value)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ExposureAxisTick({ x, y, payload }) {
+  const item = payload?.payload || {};
+  const symbol = item.symbol || payload?.value || "";
+  const name = item.name || "";
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text x={0} y={-3} textAnchor="end" fill="#2f2a24" fontSize={12} fontWeight={800}>
+        {symbol}
+      </text>
+      {name ? (
+        <text x={0} y={12} textAnchor="end" fill="#8a8176" fontSize={10}>
+          {name.length > 20 ? `${name.slice(0, 20)}...` : name}
+        </text>
+      ) : null}
+    </g>
   );
 }
 
@@ -228,6 +322,24 @@ function App() {
   const [plannerOverview, setPlannerOverview] = useState(null);
   const [isLoadingPlannerOverview, setIsLoadingPlannerOverview] = useState(false);
   const [plannerOverviewError, setPlannerOverviewError] = useState("");
+  const [investmentsOverview, setInvestmentsOverview] = useState(null);
+  const [investmentsError, setInvestmentsError] = useState("");
+  const [isLoadingInvestments, setIsLoadingInvestments] = useState(false);
+  const [isImportingInvestments, setIsImportingInvestments] = useState(false);
+  const [investmentImportFile, setInvestmentImportFile] = useState(null);
+  const [investmentAsOfDate, setInvestmentAsOfDate] = useState(formatLocalDate(new Date()));
+  const [investmentRefreshToken, setInvestmentRefreshToken] = useState(0);
+  const [investmentExposure, setInvestmentExposure] = useState(null);
+  const [investmentExposureError, setInvestmentExposureError] = useState("");
+  const [isLoadingInvestmentExposure, setIsLoadingInvestmentExposure] = useState(false);
+  const [isRefreshingInvestmentExposure, setIsRefreshingInvestmentExposure] = useState(false);
+  const [investmentExposureThreshold, setInvestmentExposureThreshold] = useState(1);
+  const [investmentExposureChartType, setInvestmentExposureChartType] = useState("bar");
+  const [industryExposure, setIndustryExposure] = useState(null);
+  const [industryExposureError, setIndustryExposureError] = useState("");
+  const [isLoadingIndustryExposure, setIsLoadingIndustryExposure] = useState(false);
+  const [isRefreshingIndustryExposure, setIsRefreshingIndustryExposure] = useState(false);
+  const [industryExposureChartType, setIndustryExposureChartType] = useState("bar");
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [isAssistantShellOpen, setIsAssistantShellOpen] = useState(false);
   const [assistantShellMode, setAssistantShellMode] = useState("analysis");
@@ -332,6 +444,7 @@ function App() {
   }, [cards, selectedCardId]);
 
   const isBudgetingTab = activeTab === "Budgeting Goals" || activeTab === "Budgeting Plan";
+  const isInvestmentTab = activeTab === "Investment";
   const spendPieColors = ["#1f5c4d", "#aa7d2d", "#a04b2f", "#5a3d18", "#1b2c55"];
   const incomePieColors = ["#214d73", "#4d7ba3", "#7d5ba6", "#5a3d18", "#1f5c4d"];
 
@@ -364,6 +477,94 @@ function App() {
       cancelled = true;
     };
   }, [isBudgetingTab, plannerOverviewRefreshToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadInvestmentsOverview() {
+      if (!isInvestmentTab) return;
+      setIsLoadingInvestments(true);
+      setInvestmentsError("");
+      try {
+        const overview = await fetchInvestmentsOverview();
+        if (!cancelled) {
+          setInvestmentsOverview(overview);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setInvestmentsError(err instanceof Error ? err.message : "Failed to load investment overview");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingInvestments(false);
+        }
+      }
+    }
+
+    void loadInvestmentsOverview();
+    return () => {
+      cancelled = true;
+    };
+  }, [isInvestmentTab, investmentRefreshToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadInvestmentExposure() {
+      if (!isInvestmentTab) return;
+      setIsLoadingInvestmentExposure(true);
+      setInvestmentExposureError("");
+      try {
+        const exposure = await fetchSingleNameExposure({ minPercent: investmentExposureThreshold, limit: 15 });
+        if (!cancelled) {
+          setInvestmentExposure(exposure);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setInvestmentExposureError(err instanceof Error ? err.message : "Failed to load investment exposure");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingInvestmentExposure(false);
+        }
+      }
+    }
+
+    void loadInvestmentExposure();
+    return () => {
+      cancelled = true;
+    };
+  }, [isInvestmentTab, investmentExposureThreshold, investmentRefreshToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadIndustryExposure() {
+      if (!isInvestmentTab) return;
+      setIsLoadingIndustryExposure(true);
+      setIndustryExposureError("");
+      try {
+        const exposure = await fetchIndustryExposure();
+        if (!cancelled) {
+          setIndustryExposure(exposure);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setIndustryExposureError(err instanceof Error ? err.message : "Failed to load industry exposure");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingIndustryExposure(false);
+        }
+      }
+    }
+
+    void loadIndustryExposure();
+    return () => {
+      cancelled = true;
+    };
+  }, [isInvestmentTab, investmentRefreshToken]);
+
   const stats = selectedCard
     ? [
         { label: "Current Balance", value: currency(selectedCard.balanceCurrent), note: selectedCard.deltaText },
@@ -443,6 +644,77 @@ function App() {
 
     setPlannerOverviewRefreshToken((current) => current + 1);
   }, []);
+
+  async function handleInvestmentImport(event) {
+    event.preventDefault();
+    if (!investmentImportFile || isImportingInvestments) return;
+
+    const form = event.currentTarget;
+    setIsImportingInvestments(true);
+    setInvestmentsError("");
+    try {
+      await importFidelityPositionsCsv(investmentImportFile, investmentAsOfDate);
+      setInvestmentImportFile(null);
+      form.reset();
+      setInvestmentRefreshToken((current) => current + 1);
+    } catch (err) {
+      setInvestmentsError(err instanceof Error ? err.message : "Failed to import Fidelity positions");
+    } finally {
+      setIsImportingInvestments(false);
+    }
+  }
+
+  async function handleInvestmentExposureRefresh() {
+    if (isRefreshingInvestmentExposure) return;
+    setIsRefreshingInvestmentExposure(true);
+    setInvestmentExposureError("");
+    try {
+      console.info("[investments] Starting exposure refresh", { force: true, threshold: investmentExposureThreshold });
+      const refreshResult = await refreshInvestmentExposure({ force: true });
+      console.info("[investments] Exposure refresh result", refreshResult);
+      const exposure = await fetchSingleNameExposure({ minPercent: investmentExposureThreshold, limit: 15 });
+      console.info("[investments] Single-name exposure result", {
+        status: exposure?.status,
+        itemCount: exposure?.items?.length || 0,
+        unresolvedCount: exposure?.unresolved?.length || 0,
+        summary: exposure?.summary || {},
+      });
+      setInvestmentExposure(exposure);
+      if (refreshResult.failed?.length) {
+        setInvestmentExposureError(
+          `Alpha Vantage refresh failed for ${refreshResult.failed.map((item) => item.symbol).join(", ")}. Check backend logs for details.`
+        );
+      }
+    } catch (err) {
+      console.error("[investments] Exposure refresh failed", err);
+      setInvestmentExposureError(err instanceof Error ? err.message : "Failed to refresh investment exposure");
+    } finally {
+      setIsRefreshingInvestmentExposure(false);
+    }
+  }
+
+  async function handleIndustryExposureRefresh() {
+    if (isRefreshingIndustryExposure) return;
+    setIsRefreshingIndustryExposure(true);
+    setIndustryExposureError("");
+    try {
+      console.info("[investments] Starting industry exposure refresh", { force: true });
+      const refreshResult = await refreshIndustryExposure({ force: true });
+      console.info("[investments] Industry exposure refresh result", refreshResult);
+      const exposure = await fetchIndustryExposure();
+      console.info("[investments] Industry exposure result", {
+        status: exposure?.status,
+        itemCount: exposure?.items?.length || 0,
+        summary: exposure?.summary || {},
+      });
+      setIndustryExposure(exposure);
+    } catch (err) {
+      console.error("[investments] Industry exposure refresh failed", err);
+      setIndustryExposureError(err instanceof Error ? err.message : "Failed to refresh industry exposure");
+    } finally {
+      setIsRefreshingIndustryExposure(false);
+    }
+  }
 
   function renderOverviewTab() {
     const incomeRaw = portfolio.summary?.totalIncome;
@@ -832,6 +1104,383 @@ function App() {
     );
   }
 
+  function renderInvestmentTab() {
+    const summary = investmentsOverview?.summary || {};
+    const holdings = investmentsOverview?.holdings || [];
+    const latestImport = investmentsOverview?.latest_import || null;
+    const hasSnapshot = investmentsOverview?.status === "ready";
+    const allocationData = holdings.filter((item) => Number(item.current_value || 0) > 0);
+    const exposureItems = investmentExposure?.items || [];
+    const exposureSummary = investmentExposure?.summary || {};
+    const exposureChartData = exposureItems.map((item) => ({
+      ...item,
+      chartLabel: item.symbol,
+    }));
+    const industryItems = industryExposure?.items || [];
+    const industrySummary = industryExposure?.summary || {};
+    const industryChartData = industryItems.map((item) => ({
+      ...item,
+      chartLabel: item.industry,
+    }));
+
+    return (
+      <section className="investment-page">
+        <div className="investment-page__heading">
+          <div>
+            <p className="section-label">Investment Portfolio</p>
+            <h3>{hasSnapshot ? "Fidelity positions snapshot" : "Import your Fidelity positions"}</h3>
+            <p className="panel-note">
+              {hasSnapshot
+                ? `Snapshot as of ${latestImport?.as_of_date || "the latest import"} · refreshed ${formatSnapshotTimestamp(latestImport?.imported_at)}`
+                : "Upload a Fidelity positions CSV to create your portfolio view."}
+            </p>
+          </div>
+          <form className="investment-import-form" onSubmit={handleInvestmentImport}>
+            <label className="investment-import-file">
+              <Upload size={16} aria-hidden="true" />
+              <span>{investmentImportFile?.name || "Choose Fidelity CSV"}</span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) => setInvestmentImportFile(event.target.files?.[0] || null)}
+              />
+            </label>
+            <label className="investment-import-date">
+              <span>As of</span>
+              <input
+                type="date"
+                value={investmentAsOfDate}
+                onChange={(event) => setInvestmentAsOfDate(event.target.value)}
+              />
+            </label>
+            <button className="primary-button investment-import-button" type="submit" disabled={!investmentImportFile || isImportingInvestments}>
+              {isImportingInvestments ? <RefreshCw className="spin" size={15} aria-hidden="true" /> : <Upload size={15} aria-hidden="true" />}
+              {isImportingInvestments ? "Importing" : "Import"}
+            </button>
+          </form>
+        </div>
+
+        {investmentsError ? (
+          <div className="chat-error" role="alert">
+            {investmentsError}
+          </div>
+        ) : null}
+
+        {isLoadingInvestments && !investmentsOverview ? (
+          <LoadingState />
+        ) : hasSnapshot ? (
+          <>
+            <div className="investment-metrics-grid">
+              <article className="stat-card investment-metric investment-metric--primary">
+                <p className="section-label">Portfolio Value</p>
+                <h3>{currency(summary.total_value)}</h3>
+                <p>{summary.holding_count} positions across {summary.account_count} account{summary.account_count === 1 ? "" : "s"}</p>
+              </article>
+              <article className="stat-card investment-metric">
+                <p className="section-label">Today</p>
+                <h3 className={gainTone(summary.day_gain_loss_amount)}>{signedCurrency(summary.day_gain_loss_amount)}</h3>
+                <p className={gainTone(summary.day_gain_loss_amount)}>{signedPercent(summary.day_gain_loss_percent)}</p>
+              </article>
+              <article className="stat-card investment-metric">
+                <p className="section-label">Total Gain / Loss</p>
+                <h3 className={gainTone(summary.total_gain_loss_amount)}>{signedCurrency(summary.total_gain_loss_amount)}</h3>
+                <p className={gainTone(summary.total_gain_loss_amount)}>{signedPercent(summary.total_gain_loss_percent)}</p>
+              </article>
+              <article className="stat-card investment-metric">
+                <p className="section-label">Cost Basis</p>
+                <h3>{currency(summary.cost_basis_total)}</h3>
+                <p>Across positions with reported basis</p>
+              </article>
+              <article className="stat-card investment-metric">
+                <p className="section-label">Cash Position</p>
+                <h3>{currency(summary.cash_value)}</h3>
+                <p>{summary.total_value ? ((summary.cash_value / summary.total_value) * 100).toFixed(2) : "0.00"}% of portfolio</p>
+              </article>
+            </div>
+
+            <div className="investment-overview-grid">
+              <article className="panel investment-allocation-panel">
+                <div className="panel-header">
+                  <div>
+                    <p className="section-label">Holdings Allocation</p>
+                    <h3>Where your portfolio is concentrated</h3>
+                  </div>
+                </div>
+                <div className="investment-allocation-shell">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Tooltip content={<SimpleListTooltip />} />
+                      <Pie data={allocationData} dataKey="current_value" nameKey="symbol" innerRadius={66} outerRadius={104} paddingAngle={2}>
+                        {allocationData.map((entry, index) => (
+                          <Cell key={`${entry.account_id}-${entry.symbol}`} fill={INVESTMENT_COLORS[index % INVESTMENT_COLORS.length]} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="investment-allocation-center">
+                    <strong>{holdings.length}</strong>
+                    <span>positions</span>
+                  </div>
+                </div>
+                <div className="investment-allocation-legend">
+                  {allocationData.map((item, index) => (
+                    <div key={`${item.account_id}-${item.symbol}`} className="investment-allocation-row">
+                      <span className="investment-allocation-swatch" style={{ background: INVESTMENT_COLORS[index % INVESTMENT_COLORS.length] }} />
+                      <strong>{item.symbol}</strong>
+                      <span>{Number(item.percent_of_portfolio || 0).toFixed(2)}%</span>
+                      <span>{currency(item.current_value)}</span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+
+              <article className="panel investment-exposure-panel">
+                <div className="panel-header investment-exposure-header">
+                  <div>
+                    <p className="section-label">Single-Name Exposure</p>
+                    <h3>Stocks inside your ETFs</h3>
+                    <p className="panel-note">
+                      {investmentExposure?.status === "ready"
+                        ? `Resolved ${Number(exposureSummary.resolved_exposure_percent || 0).toFixed(2)}% · excludes ${Number(exposureSummary.excluded_percent || 0).toFixed(2)}% cash/fixed income`
+                        : "Refresh ETF holdings to calculate look-through stock exposure."}
+                    </p>
+                  </div>
+                  <div className="investment-exposure-actions">
+                    <label>
+                      <span>View</span>
+                      <select value={investmentExposureChartType} onChange={(event) => setInvestmentExposureChartType(event.target.value)}>
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Threshold</span>
+                      <select value={investmentExposureThreshold} onChange={(event) => setInvestmentExposureThreshold(Number(event.target.value))}>
+                        <option value={0.5}>0.5%</option>
+                        <option value={1}>1%</option>
+                        <option value={2}>2%</option>
+                      </select>
+                    </label>
+                    <button className="ghost-button" type="button" onClick={handleInvestmentExposureRefresh} disabled={isRefreshingInvestmentExposure}>
+                      <RefreshCw className={isRefreshingInvestmentExposure ? "spin" : ""} size={15} aria-hidden="true" />
+                      {isRefreshingInvestmentExposure ? "Refreshing" : "Refresh"}
+                    </button>
+                  </div>
+                </div>
+                {investmentExposureError ? (
+                  <div className="chat-error" role="alert">
+                    {investmentExposureError}
+                  </div>
+                ) : null}
+                {isLoadingInvestmentExposure && !investmentExposure ? (
+                  <div className="investment-exposure-empty">Loading exposure data...</div>
+                ) : exposureChartData.length ? (
+                  <>
+                    <div className="investment-exposure-chart">
+                      <ResponsiveContainer width="100%" height="100%">
+                        {investmentExposureChartType === "pie" ? (
+                          <PieChart>
+                            <Tooltip content={<ExposureTooltip />} />
+                            <Pie
+                              data={exposureChartData}
+                              dataKey="exposure_value"
+                              nameKey="symbol"
+                              innerRadius={62}
+                              outerRadius={106}
+                              paddingAngle={2}
+                            >
+                              {exposureChartData.map((entry, index) => (
+                                <Cell key={`exposure-${entry.symbol}`} fill={INVESTMENT_COLORS[index % INVESTMENT_COLORS.length]} />
+                              ))}
+                            </Pie>
+                          </PieChart>
+                        ) : (
+                          <BarChart data={exposureChartData} layout="vertical" margin={{ top: 8, right: 28, bottom: 8, left: 92 }}>
+                            <XAxis type="number" hide domain={[0, "dataMax"]} />
+                            <YAxis
+                              type="category"
+                              dataKey="chartLabel"
+                              width={132}
+                              tickLine={false}
+                              axisLine={false}
+                              tick={<ExposureAxisTick />}
+                            />
+                            <Tooltip content={<ExposureTooltip />} />
+                            <Bar dataKey="percent_of_portfolio" fill="#1f5c4d" radius={[0, 10, 10, 0]} />
+                          </BarChart>
+                        )}
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="investment-exposure-list">
+                      {exposureItems.slice(0, 6).map((item) => (
+                        <div key={item.symbol} className="investment-exposure-row">
+                          <div>
+                            <strong>{item.symbol}</strong>
+                            <span>{item.name || "Underlying stock"}</span>
+                          </div>
+                          <div>
+                            <strong>{Number(item.percent_of_portfolio || 0).toFixed(2)}%</strong>
+                            <span>{currency(item.exposure_value)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="investment-exposure-empty">
+                    <strong>No single-name exposure yet</strong>
+                    <span>Use Refresh after configuring `ALPHA_VANTAGE_API_KEY` on the backend.</span>
+                  </div>
+                )}
+                {investmentExposure?.unresolved?.length ? (
+                  <p className="panel-note investment-exposure-footnote">
+                    Unresolved funds: {investmentExposure.unresolved.map((item) => item.symbol).join(", ")}
+                  </p>
+                ) : null}
+              </article>
+
+            </div>
+
+            <article className="panel investment-industry-panel">
+              <div className="panel-header investment-exposure-header">
+                <div>
+                  <p className="section-label">Industry Exposure</p>
+                  <h3>Industries behind your holdings</h3>
+                  <p className="panel-note">
+                    {industryExposure?.status === "ready"
+                      ? `${industrySummary.industry_count || 0} industries · classified ${formatSnapshotTimestamp(industrySummary.classified_at)}`
+                      : "Refresh after single-name exposure is available to classify companies by industry."}
+                  </p>
+                </div>
+                <div className="investment-exposure-actions">
+                  <label>
+                    <span>View</span>
+                    <select value={industryExposureChartType} onChange={(event) => setIndustryExposureChartType(event.target.value)}>
+                      <option value="bar">Bar</option>
+                      <option value="pie">Pie</option>
+                    </select>
+                  </label>
+                  <button className="ghost-button" type="button" onClick={handleIndustryExposureRefresh} disabled={isRefreshingIndustryExposure}>
+                    <RefreshCw className={isRefreshingIndustryExposure ? "spin" : ""} size={15} aria-hidden="true" />
+                    {isRefreshingIndustryExposure ? "Classifying" : "Refresh"}
+                  </button>
+                </div>
+              </div>
+              {industryExposureError ? (
+                <div className="chat-error" role="alert">
+                  {industryExposureError}
+                </div>
+              ) : null}
+              {isLoadingIndustryExposure && !industryExposure ? (
+                <div className="investment-exposure-empty">Loading industry exposure...</div>
+              ) : industryChartData.length ? (
+                <>
+                  <div className="investment-industry-chart">
+                    <ResponsiveContainer width="100%" height="100%">
+                      {industryExposureChartType === "pie" ? (
+                        <PieChart>
+                          <Tooltip content={<IndustryTooltip />} />
+                          <Pie
+                            data={industryChartData}
+                            dataKey="exposure_value"
+                            nameKey="industry"
+                            innerRadius={70}
+                            outerRadius={120}
+                            paddingAngle={2}
+                          >
+                            {industryChartData.map((entry, index) => (
+                              <Cell key={`industry-${entry.industry}`} fill={INVESTMENT_COLORS[index % INVESTMENT_COLORS.length]} />
+                            ))}
+                          </Pie>
+                        </PieChart>
+                      ) : (
+                        <BarChart data={industryChartData} layout="vertical" margin={{ top: 8, right: 28, bottom: 8, left: 112 }}>
+                          <XAxis type="number" hide domain={[0, "dataMax"]} />
+                          <YAxis type="category" dataKey="chartLabel" width={168} tickLine={false} axisLine={false} />
+                          <Tooltip content={<IndustryTooltip />} />
+                          <Bar dataKey="percent_of_portfolio" fill="#aa7d2d" radius={[0, 10, 10, 0]} />
+                        </BarChart>
+                      )}
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="investment-industry-list">
+                    {industryItems.slice(0, 8).map((item, index) => (
+                      <div key={`${item.sector}-${item.industry}`} className="investment-exposure-row investment-industry-row">
+                        <span className="investment-allocation-swatch" style={{ background: INVESTMENT_COLORS[index % INVESTMENT_COLORS.length] }} />
+                        <div>
+                          <strong>{item.industry}</strong>
+                          <span>{item.sector} · {item.company_count} compan{item.company_count === 1 ? "y" : "ies"}</span>
+                        </div>
+                        <div>
+                          <strong>{Number(item.percent_of_portfolio || 0).toFixed(2)}%</strong>
+                          <span>{currency(item.exposure_value)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="investment-exposure-empty">
+                  <strong>No industry exposure yet</strong>
+                  <span>Refresh this card after single-name exposure has been generated.</span>
+                </div>
+              )}
+            </article>
+
+            <article className="panel investment-holdings-panel">
+              <div className="panel-header">
+                <div>
+                  <p className="section-label">Positions</p>
+                  <h3>Current holdings</h3>
+                </div>
+                <span className="panel-note">{holdings.length} positions</span>
+              </div>
+              <div className="table-wrap">
+                <table className="investment-holdings-table">
+                  <thead>
+                    <tr>
+                      <th>Symbol</th>
+                      <th>Description</th>
+                      <th>Quantity</th>
+                      <th>Last price</th>
+                      <th>Value</th>
+                      <th>Portfolio</th>
+                      <th>Total gain / loss</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {holdings.map((holding) => (
+                      <tr key={`${holding.account_id}-${holding.symbol}`}>
+                        <td>
+                          <strong>{holding.symbol}</strong>
+                          {holding.is_cash_like ? <span className="investment-cash-badge">Cash</span> : null}
+                        </td>
+                        <td>{holding.description}</td>
+                        <td>{holding.quantity ?? "—"}</td>
+                        <td>{holding.last_price == null ? "—" : currency(holding.last_price)}</td>
+                        <td><strong>{currency(holding.current_value)}</strong></td>
+                        <td>{Number(holding.percent_of_portfolio || 0).toFixed(2)}%</td>
+                        <td className={gainTone(holding.total_gain_loss_amount)}>
+                          {holding.total_gain_loss_amount == null ? "—" : signedCurrency(holding.total_gain_loss_amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </>
+        ) : (
+          <article className="panel investment-empty-state">
+            <ChartPie size={32} aria-hidden="true" />
+            <h3>No investment snapshot yet</h3>
+            <p>Choose your exported Fidelity positions CSV above to populate this portfolio view.</p>
+          </article>
+        )}
+      </section>
+    );
+  }
+
   function renderBudgetingTab() {
     const isGoalsView = activeTab === "Budgeting Goals";
     const activePlan = plannerOverview?.active_plan || {};
@@ -1207,6 +1856,13 @@ function App() {
             >
               Spending Analysis
             </button>
+            <button
+              className={`nav-item ${activeTab === "Investment" ? "active" : ""}`}
+              type="button"
+              onClick={() => setActiveTab("Investment")}
+            >
+              Investment
+            </button>
             <div className="nav-section">
               <button
                 className={`nav-item ${isBudgetingTab ? "active" : ""}`}
@@ -1239,9 +1895,9 @@ function App() {
       <main className="main-panel">
         <header className="hero">
           <div>
-            <h2>Financial Snapshot</h2>
+            <h2>{isInvestmentTab ? "Investment Portfolio" : "Financial Snapshot"}</h2>
           </div>
-          <div className="hero-actions">
+          {!isInvestmentTab ? <div className="hero-actions">
             <div className="window-picker">
                 <button
                   className="ghost-button window-picker-trigger"
@@ -1282,10 +1938,12 @@ function App() {
                 </div>
               ) : null}
             </div>
-          </div>
+          </div> : null}
         </header>
 
-        {loading ? (
+        {isInvestmentTab ? (
+          renderInvestmentTab()
+        ) : loading ? (
           <LoadingState />
         ) : error ? (
           <div className="chat-error" role="alert">

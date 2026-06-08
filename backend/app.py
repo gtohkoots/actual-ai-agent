@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import List
 
-from fastapi import FastAPI, HTTPException
+from dotenv import load_dotenv
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.services.dashboard import DashboardOverview, list_accounts, build_dashboard_overview
@@ -11,8 +13,20 @@ from backend.services.chat import ChatRequest, ChatResponse, ConversationThread,
 from backend.services.analysis_options import list_analysis_categories, list_analysis_payees
 from backend.services.conversations import delete_conversation, list_conversations, load_conversation
 from backend.services.documents import rebuild_document_store, search_documents
+from backend.services.investments import (
+    get_investment_industry_exposure,
+    get_investments_overview,
+    get_single_name_exposure,
+    import_fidelity_positions_csv,
+    refresh_investment_industry_exposure,
+    refresh_investment_fund_holdings,
+)
 from backend.services.planner_chat import PlannerChatRequest, PlannerChatResponse, generate_planner_chat_response
 from backend.services.planner_overview import PlannerOverviewResponse, generate_planner_overview
+
+load_dotenv()
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(), format="%(levelname)s:%(name)s:%(message)s")
+logger = logging.getLogger(__name__)
 
 
 def _cors_origins() -> List[str]:
@@ -58,6 +72,75 @@ def planner_chat(request: PlannerChatRequest) -> PlannerChatResponse:
 @app.get("/api/planner/overview", response_model=PlannerOverviewResponse)
 def planner_overview() -> PlannerOverviewResponse:
     return generate_planner_overview()
+
+
+@app.get("/api/investments/overview")
+def investments_overview() -> dict:
+    return get_investments_overview()
+
+
+@app.post("/api/investments/import/fidelity-positions-csv")
+def import_investment_positions_csv(
+    payload: bytes = Body(..., media_type="text/csv"),
+    filename: str | None = None,
+    as_of_date: str | None = None,
+) -> dict:
+    try:
+        return import_fidelity_positions_csv(payload, filename=filename, as_of_date=as_of_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/investments/exposure/single-name")
+def investment_single_name_exposure(min_percent: float = 1.0, limit: int = 15) -> dict:
+    result = get_single_name_exposure(min_percent=min_percent, limit=limit)
+    logger.info(
+        "Investment exposure response status=%s items=%s unresolved=%s summary=%s",
+        result.get("status"),
+        len(result.get("items") or []),
+        len(result.get("unresolved") or []),
+        result.get("summary") or {},
+    )
+    return result
+
+
+@app.post("/api/investments/exposure/refresh")
+def refresh_investment_exposure(force: bool = False, request_delay_seconds: float = 1.2) -> dict:
+    result = refresh_investment_fund_holdings(force=force, request_delay_seconds=request_delay_seconds)
+    logger.info(
+        "Investment exposure refresh response status=%s candidates=%s refreshed=%s skipped=%s failed=%s",
+        result.get("status"),
+        result.get("fund_candidates") or [],
+        result.get("refreshed") or [],
+        result.get("skipped") or [],
+        result.get("failed") or [],
+    )
+    return result
+
+
+@app.get("/api/investments/industry/exposure")
+def investment_industry_exposure() -> dict:
+    result = get_investment_industry_exposure()
+    logger.info(
+        "Investment industry exposure response status=%s items=%s summary=%s",
+        result.get("status"),
+        len(result.get("items") or []),
+        result.get("summary") or {},
+    )
+    return result
+
+
+@app.post("/api/investments/industry/refresh")
+def refresh_investment_industry(force: bool = False) -> dict:
+    result = refresh_investment_industry_exposure(force=force)
+    logger.info(
+        "Investment industry refresh response status=%s items=%s requests=%s cache_hits=%s",
+        result.get("status"),
+        len(result.get("items") or []),
+        result.get("classification_requests"),
+        result.get("classification_cache_hits"),
+    )
+    return result
 
 
 @app.get("/api/analysis/options/categories")

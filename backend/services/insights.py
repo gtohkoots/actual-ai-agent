@@ -37,10 +37,10 @@ def _ensure_df(df: Optional[pd.DataFrame], start_date: str, end_date: str, filte
     if "account" not in out.columns and "account_name" in out.columns:
         out["account"] = out["account_name"]
 
-    # Ensure dollars (float)
-    if not out.empty and (
-        pd.api.types.is_integer_dtype(out["amount"]) or (out["amount"].abs().max() > 10000)
-    ):
+    # Ensure dollars (float). Actual stores raw DB amounts as integer cents,
+    # while most service loaders pass dollar floats. Do not infer cents from a
+    # large dollar value, because all-time windows can legitimately exceed 10k.
+    if not out.empty and pd.api.types.is_integer_dtype(out["amount"]):
         out["amount"] = (out["amount"].astype(float) / 100).round(2)
     else:
         out["amount"] = out["amount"].astype(float).round(2)

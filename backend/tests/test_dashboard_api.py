@@ -1,11 +1,13 @@
 import sys
 from pathlib import Path
 
+import pandas as pd
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from backend.app import app
+from backend.services.insights import get_week_rollups
 
 
 def test_accounts_endpoint_exposes_account_metadata():
@@ -49,3 +51,17 @@ def test_dashboard_default_window_uses_all_time_range():
     payload = response.json()
     assert payload["selected_window"] == "All time"
     assert payload["window"]["start"] <= payload["window"]["end"]
+
+
+def test_rollups_do_not_treat_large_dollar_amounts_as_cents():
+    frame = pd.DataFrame(
+        [
+            {"date": "2026-01-01", "amount": 15000.0, "payee": "Payroll", "category": "Paycheck"},
+            {"date": "2026-01-02", "amount": -12000.0, "payee": "Rent", "category": "Rent"},
+        ]
+    )
+
+    result = get_week_rollups("2026-01-01", "2026-01-31", df=frame)
+
+    assert result["summary"]["total_income"] == 15000.0
+    assert result["summary"]["total_expense"] == 12000.0
